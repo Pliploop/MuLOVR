@@ -1,9 +1,13 @@
+
+
 from .delay import Delay
-from .time_stretch import TimeStretchAudiomentation
+from .time_stretch import TimeStretchAudiomentation as TimeStretch
+from .reverse import Reverse
+
+from .pedalboard_audiomentation import PedalBoardAudiomentation
+
 from .chorus import ChorusAudiomentation
 from .compression import CompressorAudiomentation
 from .distortion import DistortionAudiomentation
-from .mp3 import MP3CompressorAudiomentation
 from .reverb import ReverbAudiomentation
-from .reverse import Reverse
 from .bitcrush import BitcrushAudiomentation

@@ -2,10 +2,11 @@
 __pycache__/
 *.py[cod]
 *$py.class
-
+wandb
 # C extensions
 *.so
-
+config.yaml
+checkpoints
 # Distribution / packaging
 .Python
 build/
@@ -25,6 +26,9 @@ share/python-wheels/
 .installed.cfg
 *.egg
 MANIFEST
+
+checkpoints 
+config
 
 *.ipynb
 

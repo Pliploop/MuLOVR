@@ -6,16 +6,19 @@ import matplotlib.pyplot as plt
 import wandb
 from torch import optim
 from pytorch_lightning.cli import OptimizerCallable
+from mulooc.models.encoders import *
 
 class MuLOOC(nn.Module):
     
     def __init__(self,
                  encoder,
                  head_dims =[128],
-                 temperature = 0.1,):
-        super().__init__()
-        self.encoder = encoder
+                 temperature = 0.1,
+                 feat_extract_head = -1,
+                 **kwargs):
+        super(MuLOOC,self).__init__()
         
+        self.encoder = encoder
         self.head_dims = head_dims
         self.encoder_dim = self.encoder.embed_dim
         
@@ -33,9 +36,14 @@ class MuLOOC(nn.Module):
         self.heads = nn.ModuleList(self.heads)
         self.temperature = temperature
         self.loss = NTXent(temperature = temperature)
+        self.feat_extract_head = feat_extract_head
         
-    
-        
+        if self.feat_extract_head == -2:
+            self.embed_dim = sum(self.head_dims)
+        elif self.feat_extract_head == -1:
+            self.embed_dim = self.encoder_dim
+        elif self.feat_extract_head >= 0:
+            self.embed_dim = self.head_dims[self.feat_extract_head]
         
     def forward(self,x):
         
@@ -44,7 +52,7 @@ class MuLOOC(nn.Module):
         wav = wav.contiguous().view(-1,1,wav.shape[-1]) ## [B*N_augmentations,T]
                 
         encoded = self.encoder(wav)
-        projected = [self.head(encoded) for head in self.heads]
+        projected = [head(encoded) for head in self.heads]
         
         return {
             'projected':projected,
@@ -55,27 +63,25 @@ class MuLOOC(nn.Module):
     def forward_losses(self,x):
         out_ = self(x)
         
-        labeled = x['labeled']
-        labeled = labeled.contiguous().view(-1)
-        # invert the semi-supervised contrastive matrix
-        
         B, N_augmentations,_, T = x['audio'].shape
-        matrices = self.get_contrastive_matrices(B,N_augmentations,T,x['augs'])
+        device = x['audio'].device
+        matrices = self.get_contrastive_matrices(B,N_augmentations,T,x['augs'],device)
         
         negative_mask = torch.ones_like(matrices['invariant'])
         
-        assert len(out_['projected']) == len(matrices), "Number of heads and number of loss matrices do not match"
+        assert len(out_['projected']) <= len(matrices), "Number of heads and number of loss matrices do not match"
         
         
         loss = []
         losses = {}
         sims = {}
         for i  in enumerate(matrices.items()):
-            head = i[1][0]
-            loss_head = self.loss(out_['projected'][i], matrices[head], negative_mask)
-            sims[head] = self.loss.get_similarities(out_['projected'][i])
-            losses[head] = loss_head
-            loss.append(loss_head)
+            if i[0] < len(out_['projected']): # if there are more matrices that heads, we ignore the extra matrices
+                head = i[1][0]
+                loss_head = self.loss(out_['projected'][i[0]], matrices[head], negative_mask)
+                sims[head] = self.loss.get_similarities(out_['projected'][i[0]])
+                losses[head] = loss_head
+                loss.append(loss_head)
 
         loss = torch.stack(loss)
         
@@ -87,38 +93,47 @@ class MuLOOC(nn.Module):
         }
     
     
-    def extract_features(self,x,head=-1):
+    def extract_features(self,x,head=None):
         
         # head -1 means the superspace above all heads
         # head -2 means the concatenated space of all heads
         # head n means the nth head
+        if head is None:
+            head = self.feat_extract_head
         
         with torch.no_grad():
-            out_ = self(x)
+            out_ = self({
+                'audio':x,
+            })
             
             if head == -1:
-                return out_['encoded']
+                return {'encoded': out_['encoded']}
             
             if head == -2:
-                return torch.cat(out_['projected'],dim=-1)
+                return {"encoded" : torch.cat(out_['projected'],dim=-1)}
             
-            return out_['projected'][head]
+            return {"encoded": out_['projected'][head]}
         
-    def get_contrastive_matrices(self,B,N,T,augs):
+    def get_contrastive_matrices(self,B,N,T,augs,device):
         
         ## returns a matrix of shape [B*N_augmentations,B*N_augmentations] with 1s where the labels are the same
         ## and 0s where the labels are different
         
-        all_invariant_matrix = self.get_ssl_contrastive_matrix(B,N,device = labels.device)
+        
+        all_invariant_matrix = self.get_ssl_contrastive_matrix(B,N,device = device)
         var_matrices = {}
         # sl_contrastive_matrix = self.get_sl_contrastive_matrix(B,N,labels, device = labels.device)
+
         for aug in augs:
             labels = augs[aug] #shape [B,N_aug]
+            # print(labels)
             labels = labels.contiguous().view(-1)
-            var_mat = self.get_sl_contrastive_matrix(B,N,labels, device = labels.device)
-            var_mat = (var_mat == 0).int()
+            # print(labels)
+            var_mat = self.get_sl_contrastive_matrix(B,N,(labels == 0).int(), device = device)
             var_mat = var_mat * all_invariant_matrix
             var_matrices[aug] = var_mat    
+            # print(labels)
+            # print(var_mat)
         
         
         matrices = {"invariant" : all_invariant_matrix, **var_matrices}
@@ -139,22 +154,26 @@ class MuLOOC(nn.Module):
     
     def get_sl_contrastive_matrix(self,B,N,labels, device):
         
-        ## labels is of shape [B,N_augmentations,n_classes]
-        ## labels is a one_hot encoding of the labels
+        ## labels is of shape [B,N_augmentations,n_classes] or [B,N_augmentations]
+        ## labels is a one_hot encoding of the labels or a binary encoding of the labels
         
         ## returns a matrix of shape [B*N_augmentations,B*N_augmentations] with 1s where the labels are the same
         ## and 0s where the labels are different
         
-        indices = torch.arange(0, B * N, 1, device=device)
         
+        indices = torch.arange(0, B * N, 1, device=device)
         i_indices, j_indices = torch.meshgrid(indices, indices)
         
+        
         # if the label is -1 then there is no corresponding class in the batch
+        if labels.dim() == 3:
+            x = (labels[i_indices] == labels[j_indices])*(labels[i_indices]==1)
+            contrastive_matrix = (x.sum(-1) >= 1).int()
         
-        x = (labels[i_indices] == labels[j_indices])*(labels[i_indices]==1)
+        else:
+            contrastive_matrix = torch.mm(labels.unsqueeze(-1).float(),labels.unsqueeze(-1).t().float()).int()
+            contrastive_matrix[torch.eye(contrastive_matrix.shape[0],device = contrastive_matrix.device).bool()] = 0
         # contrastive_matrix = x.any(dim=-1).int()
-        
-        contrastive_matrix = (x.sum(-1) >= 1).int()
         
         return contrastive_matrix
     
@@ -164,8 +183,8 @@ class MuLOOC(nn.Module):
 
 class LightningMuLOOC(MuLOOC,pl.LightningModule):
     
-    def __init__(self, encoder, head_dims=[128], temperature=0.1, optimizer = None):
-        super().__init__(encoder, head_dims,temperature=temperature)
+    def __init__(self, encoder, head_dims=[128], temperature=0.1, optimizer = None, feat_extract_head = -1):
+        super().__init__(encoder, head_dims,temperature=temperature,feat_extract_head=feat_extract_head)
         
         self.optimizer = optimizer
         
@@ -186,7 +205,7 @@ class LightningMuLOOC(MuLOOC,pl.LightningModule):
         
         self.logging(out_)
         
-        loss = loss.sum()
+        loss = loss.mean()
         self.log('train_loss', loss, on_step=True, on_epoch=True, prog_bar=True, logger=True,sync_dist=True)
         
         return loss
@@ -199,7 +218,7 @@ class LightningMuLOOC(MuLOOC,pl.LightningModule):
         
         # self.logging(out_)
         
-        loss = loss.sum()
+        loss = loss.mean()
         self.log('val_loss', loss, on_step=True, on_epoch=True, prog_bar=True, logger=True,sync_dist=True)
         
         return loss
@@ -227,7 +246,7 @@ class LightningMuLOOC(MuLOOC,pl.LightningModule):
                     ax[1].imshow(matrices[head].detach(
                     ).cpu().numpy(), cmap="plasma")
                     self.logger.log_image(
-                        'target_contrastive_matrix', [wandb.Image(fig)])
+                        f'{head}_target_contrastive_matrix', [wandb.Image(fig)])
                     plt.close(fig)
                 
             
@@ -238,7 +257,9 @@ class LightningMuLOOC(MuLOOC,pl.LightningModule):
         similarity[torch.eye(similarity.shape[0],device = similarity.device).bool()] = 0
         ax.imshow(similarity.detach(
         ).cpu().numpy(), cmap="plasma")
-        self.logger.log_image(
-            name, [wandb.Image(fig)])
-        plt.close(fig)
-    
+        if ax is None:
+            self.logger.log_image(
+                name, [wandb.Image(fig)])
+            plt.close(fig)
+            
+            

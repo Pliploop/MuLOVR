@@ -10,7 +10,16 @@ from torch_audiomentations.utils.object_dict import ObjectDict
 from torch_audiomentations.core.composition import BaseCompose
 
 class CustomCompose(BaseCompose):
-    
+    """
+    CustomCompose class for applying a series of transformations to input samples. and returning the transformed samples + whether they were transformed by a given augmentation.
+
+    Args:
+        **kwargs: Additional keyword arguments to be passed to the BaseCompose constructor.
+
+    Attributes:
+        transform_names (list): List of transformation names.
+    """
+
     def __init__(
         self,
         **kwargs
@@ -24,17 +33,27 @@ class CustomCompose(BaseCompose):
         sample_rate: Optional[int] = None,
         targets: Optional[Tensor] = None,
         target_rate: Optional[int] = None,
-    ) -> ObjectDict:
+    ):
+        """
+        Apply the series of transformations to the input samples.
 
+        Args:
+            samples (Tensor): Input samples.
+            sample_rate (int, optional): Sample rate of the input samples.
+            targets (Tensor, optional): Target samples.
+            target_rate (int, optional): Sample rate of the target samples.
+
+        Returns:
+            Tuple[Tensor, ObjectDict]: Transformed samples and a dictionary of booleans indicating whether each sample was transformed by a given augmentation.
+        """
         inputs = ObjectDict(
             samples=samples,
             sample_rate=sample_rate,
             targets=targets,
             target_rate=target_rate,
         )
-        transformed = {}
+        transformed = ObjectDict()
         if random.random() < self.p:
-            print('hello')
             transform_indexes = list(range(len(self.transforms)))
             if self.shuffle:
                 random.shuffle(transform_indexes)
@@ -51,7 +70,7 @@ class CustomCompose(BaseCompose):
                     changed = (new_samples.sum(dim=(1, 2)) != samples.sum(dim=(1, 2))).int()
                     transformed[self.transform_names[i]] = changed
                     
-                    print(f"Transform {self.transform_names[i]} changed {changed} samples")
+                    # print(f"Transform {self.transform_names[i]} changed {changed} samples")
                     
                     
 
@@ -59,6 +78,8 @@ class CustomCompose(BaseCompose):
                     assert isinstance(tfm, torch.nn.Module)
                     # FIXME: do we really want to support regular nn.Module?
                     inputs.samples = self.transforms[i](inputs.samples)
-
+        else:
+            for i in range(len(self.transforms)):
+                transformed[self.transform_names[i]] = torch.zeros(inputs.samples.shape[0], dtype=torch.int)
         return (inputs.samples, transformed) if self.output_type == "tensor" else (inputs, transformed)
 

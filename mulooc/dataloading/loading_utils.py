@@ -37,8 +37,8 @@ def load_full_audio(path, target_sr):
     return audio
 
 
-def load_full_and_split(path, target_sr, target_n_samples, overlap = 0.5):
+def load_full_and_split(path, target_sr, target_n_samples, overlap = 0):
     audio = load_full_audio(path, target_sr)
     audio = audio.squeeze()    
-    audio = audio.unfold(0, target_n_samples, target_n_samples - int(target_n_samples*overlap)).unsqueeze(1)
+    audio = audio.unfold(0, int(target_n_samples), int(target_n_samples) - int(target_n_samples*overlap)).unsqueeze(1)
     return audio

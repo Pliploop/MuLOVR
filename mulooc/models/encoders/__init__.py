@@ -1,0 +1,1 @@
+from mulooc.models.encoders.samplecnn import SampleCNN

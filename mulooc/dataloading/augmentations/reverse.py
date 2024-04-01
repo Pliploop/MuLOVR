@@ -4,8 +4,6 @@ from torch_audiomentations.utils.object_dict import ObjectDict
 
 from torch import Tensor
 from typing import Optional
-import librosa
-import numpy as np
 import torch
 
 

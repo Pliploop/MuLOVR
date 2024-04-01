@@ -1,7 +1,7 @@
 
 from mulooc.models.mulooc import LightningMuLOOC
 from mulooc.dataloading.datamodule import AudioDataModule
-from pytorch_lightning.cli import SaveConfigCallback
+from pytorch_lightning.cli import SaveConfigCallback, LightningCLI
 from pytorch_lightning import LightningModule, Trainer
 from pytorch_lightning.loggers import WandbLogger
 from pytorch_lightning.callbacks import ModelCheckpoint

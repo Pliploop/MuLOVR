@@ -69,8 +69,9 @@ class AudioDataset(Dataset):
                     )
                     # unfold
                     audio = audio.unfold(
-                        -1, self.target_n_samples, self.target_n_samples
+                        -1, int(self.target_n_samples), int(self.target_n_samples)
                     )
+                    audio = audio.permute(1, 0, 2)
                 elif strategy == "random":
                     audios = []
                     for i in range(self.n_augmentations):
@@ -93,9 +94,12 @@ class AudioDataset(Dataset):
             else:
                 audio, augs = self.augmentations(audio)
             
-        print(augs)
 
-        augs = augs if self.transform and self.train and self.augmentations is not None else torch.tensor([0])
+        augs = augs if self.transform and self.train and self.augmentations is not None else {
+            "none": torch.tensor([0]*self.n_augmentations)
+        }
+        
+        # print(augs)
 
         if self.return_labels:
             return {

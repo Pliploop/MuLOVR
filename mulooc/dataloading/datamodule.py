@@ -2,12 +2,10 @@ from mulooc.dataloading.dataset import AudioDataset
 from mulooc.dataloading.datamodule_splitter import DataModuleSplitter
 import torch
 import pytorch_lightning as pl
-import os
-import pandas as pd
 
-from mulooc.dataloading.augmentations import *
 from torch_audiomentations import *
-from mulooc.dataloading.augmentations.custom_compose import CustomCompose
+from mulooc.dataloading.augmentations import *
+from mulooc.dataloading.augmentations.composition.custom_compose import CustomCompose
 
 
 class AudioDataModule(pl.LightningDataModule):
@@ -61,10 +59,6 @@ class AudioDataModule(pl.LightningDataModule):
         self.var_augs = augmentations.get('var', {}).get('augs', [])
         self.var_p = augmentations.get('var', {}).get('p', 0)
         
-        print(augmentations.get('var'))
-        print("base_p", self.base_p)
-        print("var_p", self.var_p)
-        
         defaults = {
             "gain": {"min_gain_in_db": -15.0, "max_gain_in_db": 5.0, "p": 0.5, "sample_rate": self.target_sr},
             "polarity_inversion": {"p": 0.5, "sample_rate": self.target_sr},
@@ -90,7 +84,7 @@ class AudioDataModule(pl.LightningDataModule):
         
         self.augs = {
                 'gain': lambda kwargs: Gain(**kwargs) ,
-                # 'polarity_inversion': lambda p: PolarityInversion(p=min(0.8,0.6), sample_rate=self.target_sample_rate),
+                'polarity_inversion': lambda p: PolarityInversion(p=0.5, sample_rate=self.target_sr),
                 'add_colored_noise': lambda kwargs : AddColoredNoise(**kwargs),
                 'filtering': lambda kwargs: OneOf([
                     BandPassFilter(**kwargs['bandpass']),
@@ -99,15 +93,15 @@ class AudioDataModule(pl.LightningDataModule):
                     LowPassFilter(**kwargs['lowpass']),
                 ]),
                 'pitch_shift': lambda kwargs: PitchShift(**kwargs),
-                # 'delay': lambda p: Delay(p=0.5, sample_rate=self.target_sample_rate, min_delay_ms=100 , max_delay_ms=500, volume_factor=0.5 , repeats=2 , attenuation=min(1,0.5 )),
+                # 'delay': lambda p: Delay(p=0.5, sample_rate=self.target_sr, min_delay_ms=100 , max_delay_ms=500, volume_factor=0.5 , repeats=2 , attenuation=min(1,0.5 )),
                 'timestretch': lambda kwargs: TimeStretch(**kwargs),
                 'reverb' : lambda kwargs : ReverbAudiomentation(**kwargs),
-                # 'chorus' : lambda p: ChorusAudiomentation(p=1, sample_rate=self.target_sample_rate, mix = 1, rate_hz = 5, depth = 1),
+                # 'chorus' : lambda p: ChorusAudiomentation(p=1, sample_rate=self.target_sr, mix = 1, rate_hz = 5, depth = 1),
                 'distortion' : lambda kwargs: DistortionAudiomentation(**kwargs),
-                # 'compression' : lambda p: CompressorAudiomentation(p=1, sample_rate=self.target_sample_rate, threshold_db = -30, ratio = 5),
-                # 'reverse' : lambda p: Reverse(p=1, sample_rate=self.target_sample_rate),
-                # 'bitcrush' : lambda p: BitcrushAudiomentation(p=1, sample_rate=self.target_sample_rate, bit_depth = 4),
-                # 'mp3' : lambda p: MP3CompressorAudiomentation(p=1, sample_rate=self.target_sample_rate, vbr_quality = 9)
+                # 'compression' : lambda p: CompressorAudiomentation(p=1, sample_rate=self.target_sr, threshold_db = -30, ratio = 5),
+                # 'reverse' : lambda p: Reverse(p=1, sample_rate=self.target_sr),
+                # 'bitcrush' : lambda p: BitcrushAudiomentation(p=1, sample_rate=self.target_sr, bit_depth = 4),
+                # 'mp3' : lambda p: MP3CompressorAudiomentation(p=1, sample_rate=self.target_sr, vbr_quality = 9)
             }
         
         
@@ -164,8 +158,8 @@ class AudioDataModule(pl.LightningDataModule):
             target_sr=self.target_sr,
             target_n_samples=self.target_n_samples,
             augmentations=self.aug_chain,
-            transform=False,
-            train=False,
+            transform=True,
+            train=True,
             return_labels=self.return_labels,
             n_augmentations=self.n_augmentations,
             strategy_probs=self.strategy_probs,
