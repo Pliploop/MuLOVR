@@ -33,6 +33,8 @@ class AudioDataModule(pl.LightningDataModule):
         n_augmentations=2,
         strategy_probs=[1, 0, 0],
         val_split=0.1,
+        frontend = None,
+        keep_anchor=False,
     ):
         super().__init__()
         self.task = task
@@ -122,12 +124,15 @@ class AudioDataModule(pl.LightningDataModule):
             "var": self.var_aug_chain,
         }
         
+        self.frontend=frontend
+        
         self.batch_size = batch_size
         self.num_workers = num_workers
         self.transform = transform
         self.return_labels = self.task is not None
         self.n_augmentations = n_augmentations
         self.strategy_probs = strategy_probs
+        self.keep_anchor = keep_anchor
 
         self.annotations = self.splitter.annotations
 
@@ -151,6 +156,8 @@ class AudioDataModule(pl.LightningDataModule):
             return_labels=self.return_labels,
             n_augmentations=self.n_augmentations,
             strategy_probs=self.strategy_probs,
+            frontend=self.frontend,
+            keep_anchor=self.keep_anchor
         )
         self.val_dataset = AudioDataset(
             annotations=self.val_annotations,
@@ -163,6 +170,8 @@ class AudioDataModule(pl.LightningDataModule):
             return_labels=self.return_labels,
             n_augmentations=self.n_augmentations,
             strategy_probs=self.strategy_probs,
+            frontend=self.frontend,
+            keep_anchor=self.keep_anchor
         )
         if self.return_labels:
             self.test_dataset = AudioDataset(
@@ -177,6 +186,8 @@ class AudioDataModule(pl.LightningDataModule):
                 return_full=True,
                 n_augmentations=1,
                 strategy_probs=self.strategy_probs,
+                frontend=self.frontend,
+                keep_anchor=self.keep_anchor
             )
 
     def train_dataloader(self):

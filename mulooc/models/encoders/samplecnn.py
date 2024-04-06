@@ -56,3 +56,8 @@ class SampleCNN(nn.Module):
         out = self.sequential(x)
         out = out.reshape(x.shape[0], out.size(1) * out.size(2))
         return out
+    
+    def freeze(self):
+        for param in self.parameters():
+            param.requires_grad = False
+        self.eval()

@@ -16,6 +16,7 @@ class DistortionAudiomentation(PedalBoardAudiomentation):
                 Distortion()
             ])
         
-        super().__init__(board, mode, p, p_mode, sample_rate, output_type, randomize_parameters=randomize_parameters)
+        super().__init__(board, mode, p, p_mode, sample_rate, output_type=output_type, randomize_parameters=randomize_parameters)
+        # print(self.output_type)
         
         self.set_kwargs(**kwargs)

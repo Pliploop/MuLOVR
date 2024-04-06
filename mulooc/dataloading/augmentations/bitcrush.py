@@ -18,6 +18,6 @@ class BitcrushAudiomentation(PedalBoardAudiomentation):
         
     
         
-        super().__init__(board, mode, p, p_mode, sample_rate, output_type, randomize_parameters=randomize_parameters)
+        super().__init__(board, mode, p, p_mode, sample_rate , output_type=output_type, randomize_parameters=randomize_parameters)
         self.set_kwargs(**kwargs)
         

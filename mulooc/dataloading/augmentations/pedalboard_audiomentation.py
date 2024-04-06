@@ -32,7 +32,7 @@ class PedalBoardAudiomentation(BaseWaveformTransform):
         p_mode: str = None,
         sample_rate: int = None,
         target_rate: int = None,
-        output_type: Optional[str] = None,
+        output_type: Optional[str] = 'dict',
         randomize_parameters: bool = True,):
         super().__init__(
             mode=mode,
@@ -61,6 +61,7 @@ class PedalBoardAudiomentation(BaseWaveformTransform):
         self._sample_rate = sample_rate
         self._mode = mode
         self._p = p
+
         
         self.transform_parameters = {}
         self.transform_ranges = {}
@@ -161,14 +162,13 @@ class PedalBoardAudiomentation(BaseWaveformTransform):
                 self._board[0].__setattr__(key, kwargs[key])
                 
         if len(self.transform_ranges) == 0:
-            self.randomize_parameters = False
+            self._randomize_parameters = False
         
     def randomize_parameters(self,
         samples: Tensor = None,
         sample_rate: Optional[int] = None,
         targets: Optional[Tensor] = None,
         target_rate: Optional[int] = None,):
-        print("randomizing parameters")
         
         
         batch_size, num_channels, num_samples = samples.shape
@@ -183,4 +183,4 @@ class PedalBoardAudiomentation(BaseWaveformTransform):
                 for key in self.transform_ranges:
                     self.transform_parameters[key] = np.random.uniform(self.transform_ranges[key][0], self.transform_ranges[key][1])          
                     
-        print(self.transform_parameters)
+        # print(self.transform_parameters)

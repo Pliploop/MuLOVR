@@ -7,31 +7,32 @@ import wandb
 from torch import optim
 from pytorch_lightning.cli import OptimizerCallable
 from mulooc.models.encoders import *
+import torch.distributed as dist
+
 
 class MuLOOC(nn.Module):
     
     def __init__(self,
                  encoder,
-                 head_dims =[128],
+                 head_dims = [[512,128]],
                  temperature = 0.1,
-                 feat_extract_head = -1,
+                 feat_extract_head = -2,
                  **kwargs):
         super(MuLOOC,self).__init__()
         
         self.encoder = encoder
         self.head_dims = head_dims
         self.encoder_dim = self.encoder.embed_dim
-        
         self.heads = []
         
         for dim in head_dims:
-            head = nn.Sequential(
-                nn.Linear(self.encoder_dim, self.encoder_dim, bias=False),
-                nn.ReLU(),
-                nn.Linear(self.encoder_dim, dim, bias=False),
-            )
-            
-            self.heads.append(head)
+            head = []
+            last_dim = self.encoder_dim
+            for d in dim:
+                head.append(nn.Linear(last_dim,d,bias = False))
+                head.append(nn.ReLU())
+                last_dim = d
+            self.heads.append(nn.Sequential(*head))
             
         self.heads = nn.ModuleList(self.heads)
         self.temperature = temperature
@@ -39,17 +40,19 @@ class MuLOOC(nn.Module):
         self.feat_extract_head = feat_extract_head
         
         if self.feat_extract_head == -2:
-            self.embed_dim = sum(self.head_dims)
+            self.embed_dim = sum([dim[-1] for dim in self.head_dims])
         elif self.feat_extract_head == -1:
             self.embed_dim = self.encoder_dim
         elif self.feat_extract_head >= 0:
             self.embed_dim = self.head_dims[self.feat_extract_head]
         
-    def forward(self,x):
         
+    def forward(self,x):
         wav = x['audio']
-    
-        wav = wav.contiguous().view(-1,1,wav.shape[-1]) ## [B*N_augmentations,T]
+        if wav.dim() == 4:
+            wav = wav.contiguous().view(-1,1,wav.shape[-1]) ## [B*N_augmentations,T]
+        elif wav.dim() == 5: # spectrogram : [B*N_augmentations,1,F,T]
+            wav = wav.contiguous().view(-1,1,wav.shape[-2],wav.shape[-1])
                 
         encoded = self.encoder(wav)
         projected = [head(encoded) for head in self.heads]
@@ -63,9 +66,9 @@ class MuLOOC(nn.Module):
     def forward_losses(self,x):
         out_ = self(x)
         
-        B, N_augmentations,_, T = x['audio'].shape
+        B, N_augmentations = x['audio'].shape[:2]
         device = x['audio'].device
-        matrices = self.get_contrastive_matrices(B,N_augmentations,T,x['augs'],device)
+        matrices = self.get_contrastive_matrices(B,N_augmentations,x['augs'],device)
         
         negative_mask = torch.ones_like(matrices['invariant'])
         
@@ -79,7 +82,18 @@ class MuLOOC(nn.Module):
             if i[0] < len(out_['projected']): # if there are more matrices that heads, we ignore the extra matrices
                 head = i[1][0]
                 loss_head = self.loss(out_['projected'][i[0]], matrices[head], negative_mask)
-                sims[head] = self.loss.get_similarities(out_['projected'][i[0]])
+                if isinstance(loss_head,dict): # if distributed training
+                    
+                    matrices[head] = loss_head['positive_mask']
+                    sims[head] = loss_head['similarity']
+                    loss_head = loss_head['loss']
+                else:
+                    sims[head] = self.loss.get_similarities(out_['projected'][i[0]])
+                
+                # if dist.is_available() and dist.is_initialized():
+                #     dist.all_reduce(loss_head)
+                #     loss_head = loss_head / dist.get_world_size()
+                    
                 losses[head] = loss_head
                 loss.append(loss_head)
 
@@ -100,7 +114,7 @@ class MuLOOC(nn.Module):
         # head n means the nth head
         if head is None:
             head = self.feat_extract_head
-        
+
         with torch.no_grad():
             out_ = self({
                 'audio':x,
@@ -114,7 +128,7 @@ class MuLOOC(nn.Module):
             
             return {"encoded": out_['projected'][head]}
         
-    def get_contrastive_matrices(self,B,N,T,augs,device):
+    def get_contrastive_matrices(self,B,N,augs,device):
         
         ## returns a matrix of shape [B*N_augmentations,B*N_augmentations] with 1s where the labels are the same
         ## and 0s where the labels are different
@@ -183,7 +197,12 @@ class MuLOOC(nn.Module):
 
 class LightningMuLOOC(MuLOOC,pl.LightningModule):
     
-    def __init__(self, encoder, head_dims=[128], temperature=0.1, optimizer = None, feat_extract_head = -1):
+    def __init__(self,
+                 encoder,
+                 head_dims = [[512,128]],
+                 temperature=0.1,
+                 feat_extract_head = -2,
+                 optimizer=None,**kwargs):
         super().__init__(encoder, head_dims,temperature=temperature,feat_extract_head=feat_extract_head)
         
         self.optimizer = optimizer
@@ -203,9 +222,12 @@ class LightningMuLOOC(MuLOOC,pl.LightningModule):
         out_ = self.forward_losses(batch)
         loss = out_['loss']
         
-        self.logging(out_)
+        if isinstance(loss,dict):
+            loss = loss['loss']
         
         loss = loss.mean()
+        
+        self.logging(out_)
         self.log('train_loss', loss, on_step=True, on_epoch=True, prog_bar=True, logger=True,sync_dist=True)
         
         return loss
@@ -215,8 +237,6 @@ class LightningMuLOOC(MuLOOC,pl.LightningModule):
         
         out_ = self.forward_losses(batch)
         loss = out_['loss']
-        
-        # self.logging(out_)
         
         loss = loss.mean()
         self.log('val_loss', loss, on_step=True, on_epoch=True, prog_bar=True, logger=True,sync_dist=True)
@@ -240,7 +260,7 @@ class LightningMuLOOC(MuLOOC,pl.LightningModule):
                     
                     fig, ax = plt.subplots(2, 1)
                     
-                    self.log_similarity(sims[head],f"{head}_similarity",ax = ax[0])
+                    self.log_similarity(sims[head].clone(),f"{head}_similarity",ax = ax[0])
                     
                     
                     ax[1].imshow(matrices[head].detach(

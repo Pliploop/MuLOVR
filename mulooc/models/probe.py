@@ -2,6 +2,8 @@ from torch import nn
 import pytorch_lightning as pl
 import torch
 from mulooc.models.utils.task_metrics import *
+from mulooc.models.encoders import *
+from mulooc.models.mulooc import MuLOOC
 
 
 class Probe(nn.Module):
@@ -17,7 +19,7 @@ class Probe(nn.Module):
         self.encoder_checkpoint = encoder_checkpoint
         self.checkpoint_head = checkpoint_head
         
-        print(self.encoder)
+        # print(self.encoder)
         
         if freeze_encoder:
             for param in self.encoder.parameters():
@@ -27,8 +29,12 @@ class Probe(nn.Module):
             
         self.head = self.build_head()
         
+        head_device = next(self.head.parameters()).device
+        
         if encoder_checkpoint is not None:
-            self.encoder.load_state_dict(torch.load(encoder_checkpoint)['state_dict'], strict = True)
+            ckpt = torch.load(encoder_checkpoint, map_location=head_device)
+            print(ckpt['state_dict'].keys())
+            self.encoder.load_state_dict(ckpt['state_dict'], strict = True)
             print(f'Encoder loaded from {encoder_checkpoint}')
             
         if checkpoint_head is not None:
@@ -55,6 +61,7 @@ class Probe(nn.Module):
     
     def forward(self, x):
         encoded = self.encoder.extract_features(x)['encoded']
+        
         if encoded.dim() == 3: ## sequence model
             logits = self.head(encoded[:,1:,:].mean(1))
         else:
