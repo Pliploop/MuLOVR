@@ -78,7 +78,7 @@ class MuLOOC(nn.Module):
         loss = []
         losses = {}
         sims = {}
-        for i  in enumerate(matrices.items()):
+        for i in enumerate(matrices.items()):
             if i[0] < len(out_['projected']): # if there are more matrices that heads, we ignore the extra matrices
                 head = i[1][0]
                 loss_head = self.loss(out_['projected'][i[0]], matrices[head], negative_mask)
@@ -109,9 +109,9 @@ class MuLOOC(nn.Module):
     
     def extract_features(self,x,head=None):
         
-        # head -1 means the superspace above all heads
-        # head -2 means the concatenated space of all heads
-        # head n means the nth head
+        # head -1 : the superspace above all heads
+        # head -2 : the concatenated space of all heads
+        # head n : the nth head
         if head is None:
             head = self.feat_extract_head
 
@@ -139,15 +139,16 @@ class MuLOOC(nn.Module):
         # sl_contrastive_matrix = self.get_sl_contrastive_matrix(B,N,labels, device = labels.device)
 
         for aug in augs:
-            labels = augs[aug] #shape [B,N_aug]
-            # print(labels)
-            labels = labels.contiguous().view(-1)
-            # print(labels)
-            var_mat = self.get_sl_contrastive_matrix(B,N,(labels == 0).int(), device = device)
-            var_mat = var_mat * all_invariant_matrix
-            var_matrices[aug] = var_mat    
-            # print(labels)
-            # print(var_mat)
+            if len(var_matrices) < len(self.heads):
+         
+                labels = augs[aug] #shape [B,N_aug]
+                # print(labels)
+                labels = labels.contiguous().view(-1)
+                # print(labels)
+                var_mat = self.get_sl_contrastive_matrix(B,N,(labels == 0).int(), device = device)
+                var_mat = var_mat * all_invariant_matrix
+                var_matrices[aug] = var_mat    
+                
         
         
         matrices = {"invariant" : all_invariant_matrix, **var_matrices}
@@ -168,18 +169,11 @@ class MuLOOC(nn.Module):
     
     def get_sl_contrastive_matrix(self,B,N,labels, device):
         
-        ## labels is of shape [B,N_augmentations,n_classes] or [B,N_augmentations]
-        ## labels is a one_hot encoding of the labels or a binary encoding of the labels
-        
-        ## returns a matrix of shape [B*N_augmentations,B*N_augmentations] with 1s where the labels are the same
-        ## and 0s where the labels are different
-        
         
         indices = torch.arange(0, B * N, 1, device=device)
         i_indices, j_indices = torch.meshgrid(indices, indices)
         
         
-        # if the label is -1 then there is no corresponding class in the batch
         if labels.dim() == 3:
             x = (labels[i_indices] == labels[j_indices])*(labels[i_indices]==1)
             contrastive_matrix = (x.sum(-1) >= 1).int()
@@ -187,7 +181,6 @@ class MuLOOC(nn.Module):
         else:
             contrastive_matrix = torch.mm(labels.unsqueeze(-1).float(),labels.unsqueeze(-1).t().float()).int()
             contrastive_matrix[torch.eye(contrastive_matrix.shape[0],device = contrastive_matrix.device).bool()] = 0
-        # contrastive_matrix = x.any(dim=-1).int()
         
         return contrastive_matrix
     

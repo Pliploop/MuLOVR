@@ -97,15 +97,14 @@ class AudioDataset(Dataset):
 
         if self.transform and self.train and self.augmentations is not None:
             if self.keep_anchor and self.n_augmentations > 1:
-                anchor = audio[0][None]
-                audio = audio[1:][None]
+                anchor = audio[0:1,...]
             if isinstance(self.augmentations, dict):
                 audio,_ = self.augmentations['base'](audio)
                 audio, augs = self.augmentations['var'](audio)
             else:
                 audio, augs = self.augmentations(audio)
             if self.keep_anchor and self.n_augmentations > 1:
-                audio = torch.cat([anchor, audio], dim=0)
+                audio[0:1,...] = anchor
 
         augs = augs if self.transform and self.train and self.augmentations is not None else {
             "none": torch.tensor([0]*self.n_augmentations)

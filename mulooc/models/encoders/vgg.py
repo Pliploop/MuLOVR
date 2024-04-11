@@ -1,19 +1,17 @@
 import torch
 import torch.nn as nn
+from mulooc.models.encoders.frontend import Melgram
 
 class VGGish(nn.Module):
     
-    """A VGG-ish model that takes 1s of audio at 22050 Hz as input and outputs a 128-dimensional embedding.
-    the frontend expects 1s (22050 samples) of mono audio at 22050 Hz."""
-    
-    def __init__(self,frontend = None, channel_scale = 1):
+    def __init__(self, channel_scale = 1,channels = 8):
         super(VGGish, self).__init__()
 
-        
+        self.embed_dim = 512
 
-        self.frontend = frontend
+        self.frontend = Melgram(f_min=0, f_max=8000, n_mels=96, n_fft=2048, hop_length=160,window_len=400, sample_rate=16000, power=2)
             
-        channels = int(16*channel_scale)
+        channels = int(channels*channel_scale)
         all_channels = [1,channels,channels*2,channels*4,channels*8,channels*16]
         
         
@@ -52,7 +50,7 @@ class VGGish(nn.Module):
         self.relu7 = nn.ReLU()
         self.dropout7 = nn.Dropout()
         
-        self.fc8 = nn.Linear(1024, 128)
+        self.fc8 = nn.Linear(1024, 512)
         
     def forward(self, x):
         if self.frontend:

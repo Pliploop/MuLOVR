@@ -6,7 +6,7 @@ import pytorch_lightning as pl
 from torch_audiomentations import *
 from mulooc.dataloading.augmentations import *
 from mulooc.dataloading.augmentations.composition.custom_compose import CustomCompose
-
+import os
 
 class AudioDataModule(pl.LightningDataModule):
     def __init__(
@@ -81,6 +81,7 @@ class AudioDataModule(pl.LightningDataModule):
             "reverse": {"p": 0.5, "sample_rate": self.target_sr},
             "bitcrush": {"p": 0.5, "sample_rate": self.target_sr, "bit_depth": 4},
             "mp3": {"p": 0.5, "sample_rate": self.target_sr, "vbr_quality": 9},
+            "background" : {"p": 0.5, "sample_rate": self.target_sr, "min_snr_in_db": -3, "max_snr_in_db": 12, "background_paths" : '/import/c4dm-datasets-ext/audioset-01/audioset/balanced_train_segments'}
         }
         
         
@@ -104,6 +105,7 @@ class AudioDataModule(pl.LightningDataModule):
                 # 'reverse' : lambda p: Reverse(p=1, sample_rate=self.target_sr),
                 # 'bitcrush' : lambda p: BitcrushAudiomentation(p=1, sample_rate=self.target_sr, bit_depth = 4),
                 # 'mp3' : lambda p: MP3CompressorAudiomentation(p=1, sample_rate=self.target_sr, vbr_quality = 9)
+                "background" : lambda kwargs : AddBackgroundNoiseAudiomentation(**kwargs)
             }
         
         

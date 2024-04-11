@@ -83,6 +83,7 @@ if __name__ == "__main__":
         logger = None
 
     if cli.trainer.global_rank == 0:
+        print('trainer rank 0')
         cli.trainer.logger = logger
     else:
         cli.trainer.logger = None

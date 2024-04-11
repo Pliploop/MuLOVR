@@ -11,3 +11,4 @@ from .compression import CompressorAudiomentation
 from .distortion import DistortionAudiomentation
 from .reverb import ReverbAudiomentation
 from .bitcrush import BitcrushAudiomentation
+from .background import AddBackgroundNoiseAudiomentation
