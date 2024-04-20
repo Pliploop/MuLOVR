@@ -232,7 +232,7 @@ class LightningMuLOOC(MuLOOC,pl.LightningModule):
         loss = out_['loss']
         
         loss = loss.mean()
-        self.log('val_loss', loss, on_step=True, on_epoch=True, prog_bar=True, logger=True,sync_dist=True)
+        # self.log('val_loss', loss, on_step=True, on_epoch=True, prog_bar=True, logger=True,sync_dist=True)
         
         return loss
     

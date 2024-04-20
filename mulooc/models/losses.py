@@ -42,7 +42,6 @@ class NTXent(nn.Module):
         ## add zeros to negative and positive masks to prevent self-contrasting
         if dist.is_available() and dist.is_initialized(): ## this is not super optimized and doesnt deal with cases beyond bloc diagonal positives
             # Gather tensors across all processes
-            print("Gathering tensors")
             # new positive mask is a big square matrix with positive masks along the diagonal
             new_positive_mask = torch.zeros(positive_mask.shape[0]*dist.get_world_size(), positive_mask.shape[1]*dist.get_world_size(), device = positive_mask.device)
             new_negative_mask = torch.zeros(negative_mask.shape[0]*dist.get_world_size(), negative_mask.shape[1]*dist.get_world_size(), device = negative_mask.device)
