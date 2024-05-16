@@ -31,7 +31,11 @@ def load_audio_chunk(path, target_n_samples, target_sr, start = None):
 
 def load_full_audio(path, target_sr):
     audio, sr = sf.read(path, always_2d=True, dtype='float32')
+    # if the audio file is stereo, mean that dimension inplace
+    
     audio = torch.tensor(audio.T)
+    if audio.shape[0] == 2:
+        audio = audio.mean(dim=0, keepdim=True)
     # resample to target sample rate
     audio = torchaudio.functional.resample(audio, sr, target_sr)
     return audio

@@ -49,8 +49,6 @@ if __name__ == "__main__":
 
     cli = MyLightningCLI(model_class=LightningMuLOOC, datamodule_class=AudioDataModule, seed_everything_default=123,
                          run=False, save_config_callback=LoggerSaveConfigCallback, save_config_kwargs={"overwrite": True},trainer_defaults=MyLightningCLI.trainer_defaults)
-    
-    # cli.instantiate_classes()
 
     if cli.config.log:
         logger = WandbLogger(project=cli.config.project, id=cli.config.resume_id)
@@ -64,12 +62,9 @@ if __name__ == "__main__":
         ckpt_path = cli.config.ckpt_path
     else:
         logger = None
+        ckpt_path = cli.config.ckpt_path
+        experiment_name = "no_wandb"
 
-    # if cli.trainer.global_rank == 0:
-    #     print('trainer rank 0')
-    #     cli.trainer.logger = logger
-    # else:
-    #     cli.trainer.logger = None
 
     cli.trainer.logger = logger
     
@@ -88,10 +83,11 @@ if __name__ == "__main__":
         every_n_train_steps = 50000,  # Replace with your desired value
         save_top_k = -1
     )
-    callbacks = [recent_callback_step_latest,recent_callback_step ]
+    callbacks = [recent_callback_step_latest,recent_callback_step]
+    cli.trainer.callbacks = cli.trainer.callbacks[:-1]
     
     if cli.config.log:
-        cli.trainer.callbacks = cli.trainer.callbacks[:-1]+callbacks
+        cli.trainer.callbacks = cli.trainer.callbacks+callbacks
         print("logging")
 
     try:
@@ -99,7 +95,4 @@ if __name__ == "__main__":
             os.makedirs(os.path.join(ckpt_path, experiment_name))
     except:
         pass
-    
-    print("let's fit this mf")
-
     cli.trainer.fit(model=cli.model, datamodule=cli.datamodule, ckpt_path=cli.config.resume_from_checkpoint)

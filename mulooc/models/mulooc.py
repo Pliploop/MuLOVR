@@ -8,7 +8,33 @@ from torch import optim
 from pytorch_lightning.cli import OptimizerCallable
 from mulooc.models.encoders import *
 import torch.distributed as dist
+from torch.distributions.beta import Beta
+from mulooc.models.schedulers.schedulers import CosineDecayWithLinearWarmup
 
+
+def mixup(data, alpha=5.0, beta=2.0):
+    '''Applies mixup to a batch of data'''
+    # Create a beta distribution
+    dist = Beta(alpha, beta)
+
+
+    # Sample mixup gains for each feature in the batch
+    lam = dist.sample((data.size(0)*data.size(1),1, 1, 1)).to(data.device)
+
+    # Flatten the B and N dimensions into a single dimension
+    data_flattened = data.view(-1,data.size(-3), data.size(-2), data.size(-1))
+
+    # Shuffle the data along the new dimension
+    indices = torch.randperm(data_flattened.size(0)).to(data.device)
+    shuffled_data = data_flattened[indices,...]
+    
+    # Additively combine the shuffled and original data
+    data_flattened = lam * data_flattened + (1 - lam) * shuffled_data
+
+    # Reshape the data back to its original shape
+    data = data_flattened.view(data.size(0),data.size(1),data.size(2),data.size(3),data.size(4))
+
+    return data
 
 class MuLOOC(nn.Module):
     
@@ -17,6 +43,7 @@ class MuLOOC(nn.Module):
                  head_dims = [[512,128]],
                  temperature = 0.1,
                  feat_extract_head = -2,
+                 plusplus = False,
                  **kwargs):
         super(MuLOOC,self).__init__()
         
@@ -24,6 +51,8 @@ class MuLOOC(nn.Module):
         self.head_dims = head_dims
         self.encoder_dim = self.encoder.embed_dim
         self.heads = []
+        self.plusplus = plusplus
+        # if plusplus, the last block of the encoder is parallelized and each heads' input is the output of a different block
         
         for dim in head_dims:
             head = []
@@ -36,15 +65,20 @@ class MuLOOC(nn.Module):
             
         self.heads = nn.ModuleList(self.heads)
         self.temperature = temperature
-        self.loss = NTXent(temperature = temperature)
         self.feat_extract_head = feat_extract_head
         
         if self.feat_extract_head == -2:
             self.embed_dim = sum([dim[-1] for dim in self.head_dims])
         elif self.feat_extract_head == -1:
-            self.embed_dim = self.encoder_dim
+            if not self.plusplus:
+                self.embed_dim = self.encoder_dim
+            else:
+                self.embed_dim = self.encoder_dim * len(self.heads)
         elif self.feat_extract_head >= 0:
             self.embed_dim = self.head_dims[self.feat_extract_head]
+        
+        #spwn one loss per head
+        self.losses = [NTXent(temperature = temperature) for _ in range(len(self.heads))]
         
         
     def forward(self,x):
@@ -55,7 +89,11 @@ class MuLOOC(nn.Module):
             wav = wav.contiguous().view(-1,1,wav.shape[-2],wav.shape[-1])
                 
         encoded = self.encoder(wav)
-        projected = [head(encoded) for head in self.heads]
+        
+        if self.plusplus:
+            projected = [head(encoded[i,...]) for i,head in enumerate(self.heads)]
+        else:    
+            projected = [head(encoded) for head in self.heads]
         
         return {
             'projected':projected,
@@ -78,22 +116,23 @@ class MuLOOC(nn.Module):
         loss = []
         losses = {}
         sims = {}
+        
+        
+        
+        
         for i in enumerate(matrices.items()):
             if i[0] < len(out_['projected']): # if there are more matrices that heads, we ignore the extra matrices
                 head = i[1][0]
-                loss_head = self.loss(out_['projected'][i[0]], matrices[head], negative_mask)
+                # loss_head = self.loss(out_['projected'][i[0]], matrices[head], negative_mask)
+                loss_head = self.losses[i[0]](out_['projected'][i[0]], matrices[head], negative_mask)
                 if isinstance(loss_head,dict): # if distributed training
                     
                     matrices[head] = loss_head['positive_mask']
                     sims[head] = loss_head['similarity']
                     loss_head = loss_head['loss']
                 else:
-                    sims[head] = self.loss.get_similarities(out_['projected'][i[0]])
-                
-                # if dist.is_available() and dist.is_initialized():
-                #     dist.all_reduce(loss_head)
-                #     loss_head = loss_head / dist.get_world_size()
-                    
+                    sims[head] = self.losses[i[0]].get_similarities(out_['projected'][i[0]])
+    
                 losses[head] = loss_head
                 loss.append(loss_head)
 
@@ -110,8 +149,11 @@ class MuLOOC(nn.Module):
     def extract_features(self,x,head=None):
         
         # head -1 : the superspace above all heads
+        # head -1 and plusplus = True : the concatenated superspace at the output of the parallel blocks
         # head -2 : the concatenated space of all heads
         # head n : the nth head
+        # head n and plusplus = True : the output of the nth parallel block
+        
         if head is None:
             head = self.feat_extract_head
 
@@ -121,12 +163,23 @@ class MuLOOC(nn.Module):
             })
             
             if head == -1:
-                return {'encoded': out_['encoded']}
+                if self.plusplus:
+                    encoded = out_['encoded']
+                    # turn into list of tensors
+                    encoded = [encoded[i,...] for i in range(encoded.shape[0])]
+                    encoded = torch.cat(encoded,dim=-1)
+                    print(f'encoded shape: {encoded.shape}')
+                    return {'encoded': encoded}
+                else:
+                    return {'encoded': out_['encoded']}
             
             if head == -2:
                 return {"encoded" : torch.cat(out_['projected'],dim=-1)}
             
-            return {"encoded": out_['projected'][head]}
+            if head >= 0:
+                if self.plusplus:
+                    return {"encoded": out_['encoded'][head,...]}
+                return {"encoded": out_['projected'][head]}
         
     def get_contrastive_matrices(self,B,N,augs,device):
         
@@ -144,7 +197,6 @@ class MuLOOC(nn.Module):
                 labels = augs[aug] #shape [B,N_aug]
                 # print(labels)
                 labels = labels.contiguous().view(-1)
-                # print(labels)
                 var_mat = self.get_sl_contrastive_matrix(B,N,(labels == 0).int(), device = device)
                 var_mat = var_mat * all_invariant_matrix
                 var_matrices[aug] = var_mat    
@@ -195,10 +247,22 @@ class LightningMuLOOC(MuLOOC,pl.LightningModule):
                  head_dims = [[512,128]],
                  temperature=0.1,
                  feat_extract_head = -2,
-                 optimizer=None,**kwargs):
+                 optimizer=None,
+                 scheduler = None,
+                 mixup = False,
+                 accumulate = None,
+                 schedule = True,
+                 **kwargs):
         super().__init__(encoder, head_dims,temperature=temperature,feat_extract_head=feat_extract_head)
         
         self.optimizer = optimizer
+        self.scheduler = scheduler
+        self.mixup = mixup
+        self.schedule = schedule
+        
+        if accumulate:
+            print(f'accumulating loss over {accumulate} steps')
+            self.losses = [NTXent(temperature = temperature,accumulate = accumulate) for _ in range(len(self.heads))]
         
         
     def configure_optimizers(self):
@@ -208,9 +272,19 @@ class LightningMuLOOC(MuLOOC,pl.LightningModule):
         else:
             optimizer = self.optimizer(self.parameters())
             
+        if self.schedule is not None:
+            scheduler = CosineDecayWithLinearWarmup(optimizer)
+            print(f'Using scheduler: {scheduler}')
+            
+            self.scheduler = scheduler
+            return [optimizer], [scheduler]
+        
         return optimizer
     
     def training_step(self, batch, batch_idx):
+        
+        if self.mixup:
+            batch['audio'] = mixup(batch['audio'])
             
         out_ = self.forward_losses(batch)
         loss = out_['loss']
@@ -220,8 +294,18 @@ class LightningMuLOOC(MuLOOC,pl.LightningModule):
         
         loss = loss.mean()
         
+        if self.losses[0].accumulate_counter != 0:
+            return None
+        
         self.logging(out_)
+        # log learning rate
+        for param_group in self.trainer.optimizers[0].param_groups:
+            lr = param_group['lr']
+            self.log('lr', lr, on_step=True, on_epoch=True, prog_bar=True, logger=True,sync_dist=True)
         self.log('train_loss', loss, on_step=True, on_epoch=True, prog_bar=True, logger=True,sync_dist=True)
+        
+        if self.scheduler is not None:
+            self.scheduler.step()
         
         return loss
     

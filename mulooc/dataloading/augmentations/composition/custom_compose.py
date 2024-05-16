@@ -21,11 +21,12 @@ class CustomCompose(BaseCompose):
     """
 
     def __init__(
-        self,
+        self, return_tfms = False,
         **kwargs
     ):
         super().__init__(**kwargs)
         self.transform_names = [tfm.__class__.__name__ for tfm in self.transforms]
+        self.return_tfms = return_tfms
     
     def forward(
         self,
@@ -62,21 +63,23 @@ class CustomCompose(BaseCompose):
                 if isinstance(tfm, (BaseWaveformTransform, BaseCompose)):
                     samples = inputs.samples
                     inputs = self.transforms[i](**inputs)
-                    new_samples = inputs.samples
                     
-                    # retroactively check which samples in the batch was changed
-                    # changed is a boolean tensor of shape (batch_size,)
-                    # samples is a tensor of shape (batch_size, num_channels, num_samples)
-                    changed = (new_samples.sum(dim=(1, 2)) != samples.sum(dim=(1, 2))).int()
-                    transformed[self.transform_names[i]] = changed
+                    # changed = (new_samples.sum(dim=(1, 2)) != samples.sum(dim=(1, 2))).int()
                     
-                    # print(f"Transform {self.transform_names[i]} changed {changed} samples")
+                    transformed = {}
+                    if self.return_tfms:
+                        changed = self.transforms[i].transform_parameters["should_apply"].int()
+                        transformed[self.transform_names[i]] = changed  
                     
                     
-
+                    # transform parameters are stored in the transform_parameters attribute of the transform
+                    # should_apply is always the length of the batch
+                    # other parameters are only the length of the number of samples that were transformed
+                    # make the other parameter lists the length of the batch by filling non-transformed parameters with None
+                    
+                    
                 else:
                     assert isinstance(tfm, torch.nn.Module)
-                    # FIXME: do we really want to support regular nn.Module?
                     inputs.samples = self.transforms[i](inputs.samples)
         else:
             for i in range(len(self.transforms)):

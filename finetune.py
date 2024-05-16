@@ -56,6 +56,8 @@ class MyLightningCLI(LightningCLI):
         parser.add_argument("--resume_id", default=None)
         parser.add_argument('--test', default=False)
         parser.add_argument('--early_stopping_patience', default=5)
+        parser.add_argument('--project', default='MuLOOC-sandbox-finetuning')
+        
 
 if __name__ == "__main__":
     
@@ -77,13 +79,14 @@ if __name__ == "__main__":
         
 
     if cli.config.log:
-        logger = WandbLogger(project="MuLOOC-sandbox-finetuning",id = cli.config.resume_id)
+        logger = WandbLogger(project=cli.config.project,id = cli.config.resume_id)
         experiment_name = logger.experiment.name+f"_finetune_{previous_experiment_name}_{cli.config['model']['task']}"
         ckpt_path = cli.config.ckpt_path
         if cli.config.test:
             experiment_name = experiment_name.replace('finetune', 'test')
     else:
         logger = None
+        experiment_name = 'nowandb'
 
     cli.trainer.logger = logger
 
@@ -93,29 +96,30 @@ if __name__ == "__main__":
     except:
         pass
     
-    if logger is not None:
-        
-        best_val_callback = ModelCheckpoint(
-            monitor='val_loss',
-            dirpath=os.path.join(cli.config.ckpt_path, experiment_name),
-            filename='best-val-{step}',
-            save_top_k=1,
-            mode='min',
-            every_n_epochs=1
-        )
-        
-        early_stopping_callback = EarlyStopping(
-            monitor='val_loss',
-            patience=cli.config.early_stopping_patience,
-            mode='min'
-        )
-        
-        cli.trainer.callbacks = cli.trainer.callbacks[:-1]+[best_val_callback, early_stopping_callback]
+    best_val_callback = ModelCheckpoint(
+        monitor='val_loss',
+        dirpath=os.path.join(cli.config.ckpt_path, experiment_name),
+        filename='best-val-{step}',
+        save_top_k=1,
+        mode='min',
+        every_n_epochs=1
+    )
+    
+    early_stopping_callback = EarlyStopping(
+        monitor='val_loss',
+        patience=cli.config.early_stopping_patience,
+        mode='min'
+    )
+    
+    cli.trainer.callbacks = cli.trainer.callbacks[:-1]+[best_val_callback, early_stopping_callback]
     
     if not cli.config.test:    
         cli.trainer.fit(model=cli.model, datamodule=cli.datamodule)
-        if logger is not None:
-            cli.model.load_head_weights_from_checkpoint(best_val_callback.best_model_path)
+        cli.model.load_head_weights_from_checkpoint(best_val_callback.best_model_path)
             
         
     cli.trainer.test(model=cli.model, datamodule=cli.datamodule)
+    
+    # if logger is none, delete the best model checkpoint
+    if logger is None:
+        os.remove(best_val_callback.best_model_path)

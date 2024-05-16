@@ -35,6 +35,7 @@ class AudioDataModule(pl.LightningDataModule):
         val_split=0.1,
         frontend = None,
         keep_anchor=False,
+        tempo_stretching = False
     ):
         super().__init__()
         self.task = task
@@ -60,6 +61,7 @@ class AudioDataModule(pl.LightningDataModule):
         self.base_p = augmentations.get('base', {}).get('p', augmentations.get('p', 0.75))
         self.var_augs = augmentations.get('var', {}).get('augs', [])
         self.var_p = augmentations.get('var', {}).get('p', 0)
+        self.tempo_stretching = tempo_stretching
         
         defaults = {
             "gain": {"min_gain_in_db": -15.0, "max_gain_in_db": 5.0, "p": 0.5, "sample_rate": self.target_sr},
@@ -119,6 +121,7 @@ class AudioDataModule(pl.LightningDataModule):
         self.var_aug_chain = CustomCompose(
             transforms = var_transforms,
             p=self.var_p,
+            return_tfms=True
             )
         
         self.aug_chain = {
@@ -146,51 +149,56 @@ class AudioDataModule(pl.LightningDataModule):
         print("Val annotations:", len(self.val_annotations))
         print("Test annotations:", len(self.test_annotations))
 
-    def setup(self, stage=None):
-        self.train_dataset = AudioDataset(
-            annotations=self.train_annotations,
-            target_len_s=self.target_len_s,
-            target_sr=self.target_sr,
-            target_n_samples=self.target_n_samples,
-            augmentations=self.aug_chain,
-            transform=self.transform,
-            train=True,
-            return_labels=self.return_labels,
-            n_augmentations=self.n_augmentations,
-            strategy_probs=self.strategy_probs,
-            frontend=self.frontend,
-            keep_anchor=self.keep_anchor
-        )
-        self.val_dataset = AudioDataset(
-            annotations=self.val_annotations,
-            target_len_s=self.target_len_s,
-            target_sr=self.target_sr,
-            target_n_samples=self.target_n_samples,
-            augmentations=self.aug_chain,
-            transform=True,
-            train=True,
-            return_labels=self.return_labels,
-            n_augmentations=self.n_augmentations,
-            strategy_probs=self.strategy_probs,
-            frontend=self.frontend,
-            keep_anchor=self.keep_anchor
-        )
-        if self.return_labels:
-            self.test_dataset = AudioDataset(
-                annotations=self.test_annotations,
+    def setup(self, stage=None, extracted = False):
+        if not extracted:
+            self.train_dataset = AudioDataset(
+                annotations=self.train_annotations,
                 target_len_s=self.target_len_s,
                 target_sr=self.target_sr,
                 target_n_samples=self.target_n_samples,
-                augmentations=None,
-                transform=False,
-                train=False,
+                augmentations=self.aug_chain,
+                transform=self.transform,
+                train=True,
                 return_labels=self.return_labels,
-                return_full=True,
-                n_augmentations=1,
+                n_augmentations=self.n_augmentations,
                 strategy_probs=self.strategy_probs,
                 frontend=self.frontend,
-                keep_anchor=self.keep_anchor
+                keep_anchor=self.keep_anchor,
+                tempo_stretching = self.tempo_stretching
             )
+            self.val_dataset = AudioDataset(
+                annotations=self.val_annotations,
+                target_len_s=self.target_len_s,
+                target_sr=self.target_sr,
+                target_n_samples=self.target_n_samples,
+                augmentations=self.aug_chain,
+                transform=True,
+                train=True,
+                return_labels=self.return_labels,
+                n_augmentations=self.n_augmentations,
+                strategy_probs=self.strategy_probs,
+                frontend=self.frontend,
+                keep_anchor=self.keep_anchor,
+                tempo_stretching = self.tempo_stretching
+            )
+            if self.return_labels:
+                self.test_dataset = AudioDataset(
+                    annotations=self.test_annotations,
+                    target_len_s=self.target_len_s,
+                    target_sr=self.target_sr,
+                    target_n_samples=self.target_n_samples,
+                    augmentations=None,
+                    transform=False,
+                    train=False,
+                    return_labels=self.return_labels,
+                    return_full=True,
+                    n_augmentations=1,
+                    strategy_probs=self.strategy_probs,
+                    frontend=self.frontend,
+                    keep_anchor=self.keep_anchor,
+                    tempo_stretching = self.tempo_stretching
+                )
+                
 
     def train_dataloader(self):
         return torch.utils.data.DataLoader(
@@ -198,11 +206,12 @@ class AudioDataModule(pl.LightningDataModule):
             batch_size=self.batch_size,
             num_workers=self.num_workers,
             shuffle=True,
+            pin_memory=True,
         )
 
     def val_dataloader(self):
         return torch.utils.data.DataLoader(
-            self.val_dataset, batch_size=self.batch_size, num_workers=self.num_workers
+            self.val_dataset, batch_size=self.batch_size, num_workers=self.num_workers, pin_memory=True
         )
 
     def test_dataloader(self):
@@ -214,3 +223,6 @@ class AudioDataModule(pl.LightningDataModule):
         dummy = self.train_dataset[0]
         for key in dummy:
             print(key, dummy[key].shape)
+            
+    
+    # write an extract_dataset function that takes a model and a dataset as argument and extracts features from the dataset using the extract_features argument of the model and returns a tensordataset with all tensors stored in memory

@@ -33,8 +33,7 @@ class Probe(nn.Module):
         
         if encoder_checkpoint is not None:
             ckpt = torch.load(encoder_checkpoint, map_location=head_device)
-            print(ckpt['state_dict'].keys())
-            self.encoder.load_state_dict(ckpt['state_dict'], strict = True)
+            self.encoder.load_state_dict(ckpt['state_dict'], strict = False)
             print(f'Encoder loaded from {encoder_checkpoint}')
             
         if checkpoint_head is not None:

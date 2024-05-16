@@ -13,34 +13,12 @@ import yaml
 from sklearn.model_selection import train_test_split
 
 
+
+# TODO move all file paths to a config file
+
+
 def compute_checksum(path_or_bytes, algorithm="sha256", gunzip=False, chunk_size=4096):
-    """Computes checksum of target path.
-
-    Parameters
-    ----------
-    path_or_bytes : :class:`pathlib.Path` or bytes
-    Location or bytes of file to compute checksum for.
-    algorithm : str, optional
-    Hash algorithm (from :func:`hashlib.algorithms_available`); default ``sha256``.
-    gunzip : bool, optional
-    If true, decompress before computing checksum.
-    chunk_size : int, optional
-    Chunk size for iterating through file.
-
-    Raises
-    ------
-    :class:`FileNotFoundError`
-    Unknown path.
-    :class:`IsADirectoryError`
-    Path is a directory.
-    :class:`ValueError`
-    Unknown algorithm.
-
-    Returns
-    -------
-    str
-    Hex representation of checksum.
-    """
+    
     if algorithm not in hashlib.algorithms_guaranteed or algorithm.startswith("shake"):
         raise ValueError("Unknown algorithm")
     computed = hashlib.new(algorithm)
@@ -69,14 +47,6 @@ def parse_minsec(s):
 
 
 class DataModuleSplitter:
-    """generates annotation files for the MixedDataModule. Takes a task as argument
-    and returns a pandas dataframe with three columns : file_path, split, labels.
-    labels are one-hot encoded vectors of size n_classes or None if the dataset is unsupervised
-
-    if supervised_data_p is 1, then all available supervised data is used. If it is 0, then no supervised data is used.
-    if fully_supervised is True, then only supervised data is used (e.g supervised contrastive learning or finetuning).
-    if use_test_set is false, then the test set is used as part of the training set.
-    """
 
     def __init__(
         self,
@@ -139,8 +109,6 @@ class DataModuleSplitter:
         annotations.loc[:, "labels"] = temp_labels
         annotations = pd.concat([supervised_annotations, unsupervised_annotations])
 
-        # annotations = annotations[['file_path', 'labels','split']]
-
         if drop:
             annotations = annotations[annotations["labels"].notna()]
 
@@ -160,8 +128,8 @@ class DataModuleSplitter:
 
         label_sums = labels.sum(axis=1)
         unsupervised_annotations = annotations[label_sums == 0]
-        annotations = annotations[label_sums > 0]
-        labels = labels[label_sums > 0]
+        # annotations = annotations[label_sums > 0]
+        # labels = labels[label_sums > 0] #keeping  non-top50 to comply with literature
 
         annotations["labels"] = labels.values.tolist()
         annotations = annotations[["file_path", "labels"]]
@@ -220,8 +188,6 @@ class DataModuleSplitter:
         return annotations, idx2class
 
     def get_default_annotations(self):
-        # read through data_dir, fetch any audio files, and random split train and val according to self.val_split
-        # labels are None, or nan in the pandas dataframe
 
         file_list = []
         for root, _, files in os.walk(self.data_dir):
@@ -254,13 +220,13 @@ class DataModuleSplitter:
         # read txt files into dataframes
 
         train_annotations = pd.read_csv(
-            "data/gtzan/train_filtered.txt", sep=" ", header=None
+            "/import/research_c4dm/jpmg86/music_dataset_split/GTZAN_split/train_filtered.txt", sep=" ", header=None
         )
         val_annotations = pd.read_csv(
-            "data/gtzan/val_filtered.txt", sep=" ", header=None
+            "/import/research_c4dm/jpmg86/music_dataset_split/GTZAN_split/valid_filtered.txt", sep=" ", header=None
         )
         test_annotations = pd.read_csv(
-            "data/gtzan/test_filtered.txt", sep=" ", header=None
+            "/import/research_c4dm/jpmg86/music_dataset_split/GTZAN_split/test_filtered.txt", sep=" ", header=None
         )
 
         train_annotations["split"] = "train"
@@ -284,14 +250,218 @@ class DataModuleSplitter:
         )
 
         return annotations, idx2class
+    
+    def tempo_to_dummies(self, tempo_series):
+        dummies = []
+        new_tempo_series = []
+        for tempo in tempo_series:
+            dummy = [0] * 300
+            if tempo < 300:
+                dummy[tempo] = 1
+                new_tempo_series.append(tempo)
+            else:
+                new_tempo_series.append(None)
+            dummies.append(dummy)
+        return dummies, new_tempo_series
+    
+    def get_acmm_tempo_annotations(self):
+        
+        acmm_annotation_path = "/import/c4dm-datasets-ext/acm-mirum/Annotations/acm_mirum_tempos.mf"
+        audio_path = "/import/c4dm-datasets-ext/acm-mirum/Audio"
+        
+        tempo_annotations = pd.read_csv(acmm_annotation_path, sep="\t", header=None)
+        tempo_annotations.columns = ["file_path", "tempo"]
+        tempo_annotations.tempo = tempo_annotations.tempo.apply(lambda x: int(x))
+        tempo_annotations["split"] = "train"
+        tempo_annotations["labels"] = None
+        
+        dummies, tempi = self.tempo_to_dummies(tempo_annotations["tempo"])
+        tempo_annotations["labels"] = dummies
+        tempo_annotations["tempo"] = tempi
+        tempo_annotations['file_name'] = tempo_annotations['file_path'].apply(lambda x: x.split('/')[-1].replace('.wav',''))
+        tempo_annotations["file_path"] = audio_path + "/" + tempo_annotations["file_name"] + ".mp3"
+        
+        self.n_classes = 300
+        
+        idx2class = {i: c for i, c in enumerate(range(300))}
+        
+        return tempo_annotations, idx2class
+        
+        
+        
+        
+        
+        
+    
+    def get_gtzan_tempo_annotations(self):
+        audio_path = "/import/c4dm-datasets/gtzan_torchaudio/genres"
+        
+        train_annotations = pd.read_csv(
+            "/import/research_c4dm/jpmg86/music_dataset_split/GTZAN_split/train_filtered.txt", sep=" ", header=None
+            
+        )
+        
+        val_annotations = pd.read_csv(
+            "/import/research_c4dm/jpmg86/music_dataset_split/GTZAN_split/valid_filtered.txt", sep=" ", header=None
+        )
+        
+        test_annotations = pd.read_csv(
+            "/import/research_c4dm/jpmg86/music_dataset_split/GTZAN_split/test_filtered.txt", sep=" ", header=None
+        )
+
+        train_annotations["split"] = "train"
+        val_annotations["split"] = "val"
+        test_annotations["split"] = "test"
+        annotations = pd.concat([train_annotations, val_annotations, test_annotations])
+        annotations.columns = ["file_path", "split"]
+        
+        
+        tempo_annotations_folder = '/import/c4dm-datasets/gtzan_tempo_beat/tempo'
+        annotations["tempo"] = None
+        
+
+        dummies = []
+        tempi = []
+        
+        annotations['tempo_file'] = annotations['file_path'].apply(lambda x: f"{tempo_annotations_folder}/gtzan_{x.split('/')[1][:-4].replace('.','_')}.bpm")
+        
+        for idx, row in annotations.iterrows():
+            with open(row.tempo_file, 'r') as f:
+                # read the first line to an int
+                tempo = int(eval(f.readline().replace('\n','')))
+                tempi.append(tempo)
+                
+        # labels
+        
+        dummies, tempi = self.tempo_to_dummies(tempi)
+        
+        annotations["labels"] = dummies
+        annotations["tempo"] = tempi
+
+        annotations = annotations[annotations["tempo"].notna()]
+        
+        self.n_classes = 300
+        annotations["file_path"] = audio_path + "/" + annotations["file_path"]
+        annotations['task'] = 'gtzan'
+
+        idx2class = {i: c for i, c in enumerate(range(300))}
+        
+        return annotations, idx2class
+    
+    def get_hainsworth_tempo_annotations(self):
+        hainsworth_audio_path = '/import/c4dm-datasets/hainsworth/'
+        hainsworth_annotations_path = '/import/c4dm-datasets/hainsworth/beat_and_downbeat_annotations'
+        
+        annotations = {}
+        
+        for root, dirs, files in os.walk(hainsworth_audio_path):
+            for file in files:
+                if file.endswith('.wav'):
+                    file_name = file.split('.')[0]
+                    annotation_path = os.path.join(hainsworth_annotations_path, file_name + '.beats')
+                    # open the file with pandas with tab delimiter
+                    annotation = pd.read_csv(annotation_path, sep='\t', header=None)
+                    # the first column is the beat times
+                    # use to get the average tempo
+                    tempo = int(60 / np.mean(np.diff(annotation[0])))
+                    annotations[file] = tempo
+                    
+        annotations = pd.DataFrame(annotations.items(), columns=['file_path', 'tempo'])
+        annotations['split'] = 'train'
+        annotations['labels'] = None
+        dummies, tempi = self.tempo_to_dummies(annotations['tempo'])
+        annotations['labels'] = dummies
+        annotations['tempo'] = tempi
+        annotations['file_path'] = hainsworth_audio_path + annotations['file_path']
+        annotations = annotations[annotations['tempo'].notna()]
+        self.n_classes = 300
+        annotations['task'] = 'hainsworth'
+        idx2class = {i: c for i, c in enumerate(range(300))}
+        
+        return annotations, idx2class
+    
+    def get_giantsteps_tempo_annotations(self):
+        giansteps_annotations_path = '/import/c4dm-datasets/giantsteps_tempo/annotations_v2/tempo'
+        giansteps_audio_path = '/import/c4dm-datasets/giantsteps_tempo/audio'
+        
+        annotations = {}
+        for root, dirs, files in os.walk(giansteps_annotations_path):
+            for file in files:
+                if file.endswith('.bpm'):
+                    file_name = file.replace('.bpm', '')
+                    audio_path = os.path.join(giansteps_audio_path, file_name + '.mp3')
+                    # open the file and get the first line without the newline symbol
+                    with open(os.path.join(giansteps_annotations_path, file), 'r') as f:
+                        tempo = int(eval(f.readline().replace('\n','')))
+                        annotations[file_name] = tempo
+                        
+        annotations = pd.DataFrame(annotations.items(), columns=['file_path', 'tempo'])
+        annotations['split'] = 'train'
+        annotations['labels'] = None
+        
+        dummies, tempi = self.tempo_to_dummies(annotations['tempo'])
+        annotations['labels'] = dummies
+        annotations['tempo'] = tempi
+        annotations['file_path'] = giansteps_audio_path + '/' + annotations['file_path'] + '.mp3'
+        annotations = annotations[annotations['tempo'].notna()]
+        self.n_classes = 300
+        annotations['task'] = 'giantsteps'
+        idx2class = {i: c for i, c in enumerate(range(300))}
+        
+        return annotations, idx2class
+                    
+    def get_one_vs_all_tempo(self,task):
+        
+        # assume 4 tempo datasets : gtzan, hainsworth, ACMM and giansteps
+        # get the tempo annotations for each dataset
+        
+        gtzan_annotations, gtzan_idx2class = self.get_gtzan_tempo_annotations()
+        hainsworth_annotations, hainsworth_idx2class = self.get_hainsworth_tempo_annotations()
+        acmm_annotations, acmm_idx2class = self.get_acmm_tempo_annotations()
+        giantsteps_annotations, giantsteps_idx2class = self.get_giantsteps_tempo_annotations()
+        
+        # concat all
+        
+        annotations = pd.concat([gtzan_annotations,hainsworth_annotations,giantsteps_annotations,acmm_annotations])
+        
+        # task is the testing set, the rest is split using val_split
+        
+        test_annotations = annotations[annotations['task'] == task]
+        train_val_annotations = annotations[annotations['task'] != task]
+        
+        train_len = int(len(train_val_annotations) * (1 - self.val_split))
+        train_annotations, val_annotations = random_split(
+            train_val_annotations, [train_len, len(train_val_annotations) - train_len]
+        )
+        
+        train_annotations = train_val_annotations.iloc[train_annotations.indices]
+        val_annotations = train_val_annotations.iloc[val_annotations.indices]
+        
+        train_annotations.loc[:, "split"] = "train"
+        val_annotations.loc[:, "split"] = "val"
+        test_annotations.loc[:, "split"] = "test"
+        
+        annotations = pd.concat([train_annotations, val_annotations,test_annotations])
+        
+        return annotations, gtzan_idx2class # they all have the same idx2class
+    
+    def get_gtzan_vs_all_tempo_annotations(self):
+        return self.get_one_vs_all_tempo('gtzan')
+    
+    def get_hainsworth_vs_all_tempo_annotations(self):
+        return self.get_one_vs_all_tempo('hainsworth')
+    
+    def get_acmm_vs_all_tempo_annotations(self):
+        return self.get_one_vs_all_tempo('acmm')
+    
+    def get_giantsteps_vs_all_tempo_annotations(self):
+        return self.get_one_vs_all_tempo('giantsteps')
+        
 
     def get_giantsteps_annotations(self):
-        test_audio_path = "/homes/jpmg86/giantsteps-key-dataset/audio"
-        test_annotations_path = "/homes/jpmg86/giantsteps-key-dataset/annotations/key"
+        test_audio_path = "/import/research_c4dm/jpmg86/giantsteps-key-dataset/audio"
+        test_annotations_path = "/import/research_c4dm/jpmg86/giantsteps-key-dataset/annotations/key"
 
-        # every file in the annotations path is of shape {filename}.LOFI.key
-        # and when read contains the key as a string.
-        # build the annotations file with the audio files in audio_path and the keys in the annotations_path
         test_annotations = pd.DataFrame(
             os.listdir(test_audio_path), columns=["file_path"]
         )
@@ -312,15 +482,11 @@ class DataModuleSplitter:
                 key = f.read()
                 test_annotations.loc[idx, "key"] = key
 
-        # do a random split of the data into train, val and test, put this into the dataframe as a column "split"
-
-        # test_annotations["split"] = np.random.choice(["train", "val"], size=len(test_annotations), p=[
-        #                                         1-self.val_split-self.val_split])
         test_classes = test_annotations["key"].unique()
 
-        train_audio_path = "/homes/jpmg86/giantsteps-mtg-key-dataset/audio"
+        train_audio_path = "/import/research_c4dm/jpmg86/giantsteps-mtg-key-dataset/audio"
         train_annotations_txt = (
-            "/homes/jpmg86/giantsteps-mtg-key-dataset/annotations/annotations.txt"
+            "/import/research_c4dm/jpmg86/giantsteps-mtg-key-dataset/annotations/annotations.txt"
         )
 
         train_annotations = pd.read_csv(train_annotations_txt, sep="\t")
@@ -374,6 +540,7 @@ class DataModuleSplitter:
         )
 
         self.n_classes = len(annotations["key"].unique())
+        
 
         return annotations, idx2class
 
@@ -501,12 +668,21 @@ class DataModuleSplitter:
         annotations, idx2class = self.get_nsynth_annotations("pitch")
         idx2class = {i: librosa.midi_to_note(c) for i, c in idx2class.items()}
         return annotations, idx2class
-
-    def get_nsynth_qualities_annotations(self):
-        annotations = self.get_nsynth_annotations("instrument_family")
-        annotations["labels"] = annotations["qualities"]
-        self.n_classes = len(annotations["labels"][0])
-        return annotations
+    
+    def get_nsynth_pitch_special_annotations(self):
+        # a sub-task of nsynth pitch which only keeps samples of notes frome the fourth octave (midi 48 to 60)
+        annotations, idx2class = self.get_nsynth_annotations("pitch")
+        annotations = annotations[annotations["pitch"] >= 48]
+        annotations = annotations[annotations["pitch"] < 60]
+        # remake idx2class, n_classes, and class2idx
+        idx2class = {i: c for i, c in enumerate(annotations["pitch"].unique())}
+        self.n_classes = len(idx2class)
+        class2idx = {c: i for i, c in enumerate(idx2class.values())}
+        annotations["labels"] = annotations["pitch"].apply(lambda x: class2idx[x])
+        annotations["labels"] = (
+            pd.get_dummies(annotations["labels"]).values.astype(int).tolist()
+        )
+        return annotations, idx2class
 
     def get_nsynth_annotations(self, class_name):
         all_data = {}
@@ -535,10 +711,7 @@ class DataModuleSplitter:
             lambda x: "train" if x == "train" else "val" if x == "valid" else "test"
         )
 
-        # get the number of classes for column "instrument_family"
         self.n_classes = len(annotations[class_name].unique())
-        # pretty print the number of classes
-        # add 'labels' to the dataframe as a one-hot of classes to int
 
         class2idx = {c: i for i, c in enumerate(annotations[class_name].unique())}
         idx2class = {i: c for i, c in enumerate(annotations[class_name].unique())}
@@ -553,7 +726,6 @@ class DataModuleSplitter:
 
         data_dir = "/import/c4dm-datasets/VocalSet1-2"
 
-        # annotations = pd.DataFrame(columns=['file_path', 'labels', 'split'])
         annotations = []
 
         for root, dirs, files in os.walk(os.path.join(data_dir, "data_by_singer")):
@@ -584,8 +756,7 @@ class DataModuleSplitter:
         annotations["labels"] = (
             pd.get_dummies(annotations["labels"]).values.astype(int).tolist()
         )
-        # split the train data into train and val #but ignore test
-
+        
         self.n_classes = len(annotations["label_name"].unique())
 
         return annotations, idx2class
@@ -610,7 +781,6 @@ class DataModuleSplitter:
             lambda x: x.replace("emale", "").replace("ale", "")
         )
 
-        # annotations = pd.DataFrame(columns=['file_path', 'labels', 'split'])
         annotations = []
 
         for root, dirs, files in os.walk(os.path.join(data_dir, "data_by_technique")):
@@ -639,8 +809,7 @@ class DataModuleSplitter:
         annotations["labels"] = (
             pd.get_dummies(annotations["labels"]).values.astype(int).tolist()
         )
-        # split the train data into train and val #but ignore test
-
+        
         if self.val_split > 0:
             test_data = annotations[annotations["split"] == "test"]
             train_data = annotations[annotations["split"] == "train"]
@@ -677,16 +846,13 @@ class DataModuleSplitter:
         idx2class = {i: c for i, c in enumerate(class2idx.keys())}
         annotations = pd.concat(annotations)
 
-        # replace mp3 extensions with wav in path columns
         annotations["split"] = annotations["split"].str.replace("validation", "val")
 
         self.n_classes = len(class2idx)
 
-        # the "labels" column is a list of tags, we need to one-hot encode it
         annotations["idx"] = annotations["tags"].apply(
             lambda x: [class2idx[tag] for tag in x]
         )
-        # now "labels" is a list of indices, we need to one-hot encode it into one on-hot vector per example
         annotations["labels"] = annotations["idx"].apply(
             lambda x: np.sum(np.eye(len(class2idx))[x], axis=0).astype(int).tolist()
         )
