@@ -47,9 +47,11 @@ class MuLOOC(nn.Module):
                  **kwargs):
         super(MuLOOC,self).__init__()
         
+        
         self.encoder = encoder
+        
         self.head_dims = head_dims
-        self.encoder_dim = self.encoder.embed_dim
+        self.encoder_dim = self.encoder.embed_dim if encoder else None
         self.heads = []
         self.plusplus = plusplus
         # if plusplus, the last block of the encoder is parallelized and each heads' input is the output of a different block
@@ -67,16 +69,22 @@ class MuLOOC(nn.Module):
         self.temperature = temperature
         self.feat_extract_head = feat_extract_head
         
-        if self.feat_extract_head == -2:
-            self.embed_dim = sum([dim[-1] for dim in self.head_dims])
-        elif self.feat_extract_head == -1:
-            if not self.plusplus:
-                self.embed_dim = self.encoder_dim
-            else:
-                self.embed_dim = self.encoder_dim * len(self.heads)
-        elif self.feat_extract_head >= 0:
-            self.embed_dim = self.head_dims[self.feat_extract_head]
+        if isinstance(self.feat_extract_head, list):
+            self.embed_dim = self.encoder_dim * len(self.feat_extract_head)
+            
+        else:
+            if self.feat_extract_head == -2:
+                self.embed_dim = sum([dim[-1] for dim in self.head_dims])
+            elif self.feat_extract_head == -1:
+                if not self.plusplus:
+                    self.embed_dim = self.encoder_dim
+                else:
+                    self.embed_dim = self.encoder_dim * len(self.heads)
+            elif self.feat_extract_head >= 0:
+                self.embed_dim = self.head_dims[self.feat_extract_head]
         
+        
+        print(f'Embedding dimension: {self.embed_dim}')
         #spwn one loss per head
         self.losses = [NTXent(temperature = temperature) for _ in range(len(self.heads))]
         
@@ -106,9 +114,13 @@ class MuLOOC(nn.Module):
         
         B, N_augmentations = x['audio'].shape[:2]
         device = x['audio'].device
+        
+        
+        
         matrices = self.get_contrastive_matrices(B,N_augmentations,x['augs'],device)
         
         negative_mask = torch.ones_like(matrices['invariant'])
+        
         
         assert len(out_['projected']) <= len(matrices), "Number of heads and number of loss matrices do not match"
         
@@ -150,7 +162,7 @@ class MuLOOC(nn.Module):
         
         # head -1 : the superspace above all heads
         # head -1 and plusplus = True : the concatenated superspace at the output of the parallel blocks
-        # head -2 : the concatenated space of all heads
+        # head is a list : the concatenated space of the heads in the list
         # head n : the nth head
         # head n and plusplus = True : the output of the nth parallel block
         
@@ -162,24 +174,26 @@ class MuLOOC(nn.Module):
                 'audio':x,
             })
             
-            if head == -1:
-                if self.plusplus:
-                    encoded = out_['encoded']
-                    # turn into list of tensors
-                    encoded = [encoded[i,...] for i in range(encoded.shape[0])]
-                    encoded = torch.cat(encoded,dim=-1)
-                    print(f'encoded shape: {encoded.shape}')
-                    return {'encoded': encoded}
-                else:
-                    return {'encoded': out_['encoded']}
-            
-            if head == -2:
-                return {"encoded" : torch.cat(out_['projected'],dim=-1)}
-            
-            if head >= 0:
-                if self.plusplus:
-                    return {"encoded": out_['encoded'][head,...]}
-                return {"encoded": out_['projected'][head]}
+            if isinstance(head, int):
+                if head == -1:
+                    if self.plusplus:
+                        encoded = out_['encoded']
+                        encoded = torch.cat(encoded, dim=-1)
+                        return {'encoded': encoded}
+                    else:
+                        return {'encoded': out_['encoded']}
+
+                if head == -2:
+                    return {"encoded": torch.cat(out_['projected'], dim=-1)}
+
+                if head >= 0:
+                    if self.plusplus:
+                        return {"encoded": out_['encoded'][head]}
+                    return {"encoded": out_['projected'][head]}
+
+            if isinstance(head, list):
+                encoded = torch.cat([out_['encoded'][h] for h in head], dim=-1)
+                return {"encoded": encoded}
         
     def get_contrastive_matrices(self,B,N,augs,device):
         
@@ -190,7 +204,6 @@ class MuLOOC(nn.Module):
         all_invariant_matrix = self.get_ssl_contrastive_matrix(B,N,device = device)
         var_matrices = {}
         # sl_contrastive_matrix = self.get_sl_contrastive_matrix(B,N,labels, device = labels.device)
-
         for aug in augs:
             if len(var_matrices) < len(self.heads):
          
@@ -251,9 +264,10 @@ class LightningMuLOOC(MuLOOC,pl.LightningModule):
                  scheduler = None,
                  mixup = False,
                  accumulate = None,
-                 schedule = True,
+                 schedule = False,
+                 plusplus = False,
                  **kwargs):
-        super().__init__(encoder, head_dims,temperature=temperature,feat_extract_head=feat_extract_head)
+        super().__init__(encoder, head_dims,temperature=temperature,feat_extract_head=feat_extract_head,plusplus=plusplus,**kwargs)
         
         self.optimizer = optimizer
         self.scheduler = scheduler
@@ -272,7 +286,7 @@ class LightningMuLOOC(MuLOOC,pl.LightningModule):
         else:
             optimizer = self.optimizer(self.parameters())
             
-        if self.schedule is not None:
+        if self.schedule:
             scheduler = CosineDecayWithLinearWarmup(optimizer)
             print(f'Using scheduler: {scheduler}')
             
@@ -331,7 +345,7 @@ class LightningMuLOOC(MuLOOC,pl.LightningModule):
         
         if self.logger:
             
-            if self.global_step % 2000 == 0:
+            if self.global_step % 4000 == 0:
                 for head in sims:
                     
                     

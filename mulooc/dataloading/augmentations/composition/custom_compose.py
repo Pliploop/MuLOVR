@@ -21,12 +21,14 @@ class CustomCompose(BaseCompose):
     """
 
     def __init__(
-        self, return_tfms = False,
+        self, return_tfms = False, track_params = False,
         **kwargs
     ):
         super().__init__(**kwargs)
         self.transform_names = [tfm.__class__.__name__ for tfm in self.transforms]
         self.return_tfms = return_tfms
+        self.track_params = False
+        
     
     def forward(
         self,
@@ -66,23 +68,54 @@ class CustomCompose(BaseCompose):
                     
                     # changed = (new_samples.sum(dim=(1, 2)) != samples.sum(dim=(1, 2))).int()
                     
-                    transformed = {}
                     if self.return_tfms:
-                        changed = self.transforms[i].transform_parameters["should_apply"].int()
-                        transformed[self.transform_names[i]] = changed  
-                    
-                    
-                    # transform parameters are stored in the transform_parameters attribute of the transform
-                    # should_apply is always the length of the batch
-                    # other parameters are only the length of the number of samples that were transformed
-                    # make the other parameter lists the length of the batch by filling non-transformed parameters with None
+                        # each transform has a ditionary attribute trackable_params, for which the keys are the names of the parameters that are tracked and the values are the tolerance values and the default
+                        # for each parameter, tolerance pair, if the parameter changes by more than the tolerance, the sample is considered transformed
+                        # if the tolerance is none, parameters have to be exactly equal to be considered NOT transformed
+                        if self.track_params and hasattr(self.transforms[i], "trackable_params"):
+                            changed_matrix = torch.zeros(inputs.samples.shape[0], inputs.samples.shape[0], dtype=torch.int)
+                            for param_name, tolerance in self.transforms[i].trackable_params.items():
+                                # this tracks whether or not a sample was changed relative to other samples
+                                if tolerance is not None:
+                                    # a square matrix of relative parameter differences
+                                    diff_matrix = (self.transforms[i].transform_parameters[param_name].unsqueeze(1) - self.transforms[i].transform_parameters[param_name])
+                                    tol_changed = torch.abs(diff_matrix) > tolerance
+                                    changed_matrix = changed_matrix * tol_changed
+                                else:
+                                    changed_matrix = changed_matrix * (self.transforms[i].transform_parameters[param_name].unsqueeze(1) != self.transforms[i].transform_parameters[param_name])
+                                
+                                changed = changed_matrix
+                                print(changed.shape)
+                                    
+                        else :
+                            
+                            changed = self.transforms[i].transform_parameters["should_apply"].int()
+                        
+                        transformed[self.transform_names[i]] = changed
                     
                     
                 else:
                     assert isinstance(tfm, torch.nn.Module)
                     inputs.samples = self.transforms[i](inputs.samples)
+                    
+            
         else:
             for i in range(len(self.transforms)):
                 transformed[self.transform_names[i]] = torch.zeros(inputs.samples.shape[0], dtype=torch.int)
+                
+        
+        if self.return_tfms:
+            for transform in self.transforms:
+                    for key in transform.transform_parameters:
+                        new_params = transform.transform_parameters[key]
+                        if key != "should_apply":
+                            
+                            for i in range(len(transform.transform_parameters['should_apply'])):
+                                if not transform.transform_parameters['should_apply'][i]:
+                                    # insert None for non-transformed samples
+                                    new_params.insert(i, None)
+                            transform.transform_parameters[key] = new_params
+                
+                
         return (inputs.samples, transformed) if self.output_type == "tensor" else (inputs, transformed)
 

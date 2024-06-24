@@ -87,6 +87,7 @@ class LightningProbe(Probe, pl.LightningModule):
     
     def __init__(self, encoder, task = None,loss_fn =None,optimizer = None, layer_dims = [512], num_classes = 50, dropout = 0, activation = 'relu', freeze_encoder = True, checkpoint = None, checkpoint_head = None, **kwargs):
         super().__init__(encoder, layer_dims, num_classes, dropout, activation, freeze_encoder, checkpoint, checkpoint_head, **kwargs)
+        
         self.optimizer = optimizer
         self.loss_fn = loss_fn
         self.task = task
@@ -136,6 +137,8 @@ class LightningProbe(Probe, pl.LightningModule):
     def test_step(self, batch, batch_idx):
         audio, labels = batch['audio'], batch['labels']
         audio = audio.squeeze(0)# remove batch dimension for test
+        if audio.shape[0] > 64:
+            audio = audio[:64]
         encoded = self(audio)['encoded']
         if encoded.dim() == 3:
             logits = self.head(encoded[:,1:,:].mean(1).mean(0,keepdim = True))

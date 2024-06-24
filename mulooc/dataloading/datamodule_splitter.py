@@ -280,10 +280,13 @@ class DataModuleSplitter:
         tempo_annotations["tempo"] = tempi
         tempo_annotations['file_name'] = tempo_annotations['file_path'].apply(lambda x: x.split('/')[-1].replace('.wav',''))
         tempo_annotations["file_path"] = audio_path + "/" + tempo_annotations["file_name"] + ".mp3"
+        tempo_annotations['task'] = 'acmm'
         
         self.n_classes = 300
         
         idx2class = {i: c for i, c in enumerate(range(300))}
+        
+        print(tempo_annotations)
         
         return tempo_annotations, idx2class
         
@@ -858,12 +861,17 @@ class DataModuleSplitter:
         )
         annotations["file_path"] = audio_path + "/" + annotations["file_path"]
 
+        #if audio_path has 'low' in it, replace file paths extension with wav
+        if "low" in audio_path:
+            annotations["file_path"] = annotations["file_path"].str.replace(".mp3", ".wav")
+
+
         return annotations, idx2class
 
     def get_mtg_top50_annotations(self):
 
         path = "/import/c4dm-datasets/mtg-jamendo-raw/mtg-jamendo-dataset/data/splits/split-0/autotagging_top50tags-split.tsv"
-        audio_path = "/import/c4dm-datasets/mtg-jamendo-raw/mtg-jamendo-dataset/mp3"
+        audio_path = "//import/research_c4dm/jpmg86/jamendo_low"
 
         return self.get_mtg_annotations(path, audio_path)
 

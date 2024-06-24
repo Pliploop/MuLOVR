@@ -4,9 +4,13 @@ import numpy as np
 import torch
 
 def load_audio_chunk(path, target_n_samples, target_sr, start = None):
-    info = sf.info(path)
-    frames = info.frames
-    sr = info.samplerate
+    # info = sf.info(path)
+    # frames = info.frames
+    # sr = info.samplerate
+    
+    info = torchaudio.info(path, backend='soundfile')
+    sr = info.sample_rate
+    frames = info.num_frames
     
     
     if path.split('.')[-1] == 'mp3':
@@ -18,8 +22,9 @@ def load_audio_chunk(path, target_n_samples, target_sr, start = None):
         # random
         start = np.random.randint(0, frames - new_target_n_samples)
         
-    audio,sr = sf.read(path, start=start, stop=start+new_target_n_samples, always_2d=True, dtype='float32')
-    audio = torch.tensor(audio.T)
+    # audio,sr = sf.read(path, start=start, stop=start+new_target_n_samples, always_2d=True, dtype='float32')
+    audio,sr = torchaudio.load(path, frame_offset=start, num_frames=new_target_n_samples, backend='soundfile')
+    # audio = torch.tensor(audio.T)
     # resample to target sample rate
     
     # print(audio.shape)

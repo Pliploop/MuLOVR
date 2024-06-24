@@ -223,7 +223,7 @@ class ParallelModule(nn.Module):
             outputs.append(module(x[i]))
             
             
-        print(f'ParallelModule: {len(self.parallels)} branches with shapes {[o.shape for o in outputs]}')
+        # print(f'ParallelModule: {len(self.parallels)} branches with shapes {[o.shape for o in outputs]}')
         return outputs
             
 
@@ -708,10 +708,15 @@ class NFNetPlus(nn.Module):
             nn.AdaptiveAvgPool2d((1, 1)),
             nn.AdaptiveAvgPool2d((1, 1))
         ])
+        
+        
 
 
         self.frontend = frontend
+        
+        
         self.embed_dim = 1728
+        
         
 
     def forward(self, x):

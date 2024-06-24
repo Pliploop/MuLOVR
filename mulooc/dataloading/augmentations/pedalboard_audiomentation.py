@@ -78,16 +78,15 @@ class PedalBoardAudiomentation(BaseWaveformTransform):
     
     def process(self, samples):
         ## audio is of shape [Batch, channels, time], as expected by pedalboard
-        if self._mode == 'per_example':
-            new_audio = []
-            for i in range(samples.shape[0]):
-                input_ = samples[i,:,:].numpy()
-                effected = self._board(input_array = input_, sample_rate = self._sample_rate)
-                new_audio.append(torch.tensor(effected).unsqueeze(0))
-            
-            
-            return torch.cat(new_audio, dim=0)
-    
+        new_audio = []
+        for i in range(samples.shape[0]):
+            input_ = samples[i,:,:].numpy()
+            effected = self._board(input_array = input_, sample_rate = self._sample_rate)
+            new_audio.append(torch.tensor(effected).unsqueeze(0))
+        
+        
+        return torch.cat(new_audio, dim=0)
+
     def apply_transform(
         
         self,
@@ -99,24 +98,11 @@ class PedalBoardAudiomentation(BaseWaveformTransform):
         
         batch_size, num_channels, num_samples = samples.shape
         
-        if self._mode == "per_example":
+        for i in range(batch_size):
             if self._randomize_parameters:
-                for i in range(batch_size):
-                    for key in self.transform_parameters:
-                        self._board[0].__setattr__(key, self.transform_parameters[key][i]) if key!="should_apply" else None
-                    samples[i, ...] = self.process(samples[i][None])
-                    
-            
-            
-            else:
-                samples = self.process(samples)
-        elif self._mode == "per_batch":
-            if self._randomize_parameters:
-                for key in self.transform_parameters:
-                    self._board[0].__setattr__(key, self.transform_parameters[key][0]) if key != "should_apply" else None
-                samples = self.process(samples)
-            else:
-                samples = self.process(samples)
+                for key in self.transform_parameters:   
+                    self._board[0].__setattr__(key, self.transform_parameters[key][i]) if key!="should_apply" else None
+            samples[i, ...] = self.process(samples[i][None])
         
         return ObjectDict(
             samples=samples,
@@ -177,10 +163,11 @@ class PedalBoardAudiomentation(BaseWaveformTransform):
         if self._randomize_parameters:
             if self._mode == "per_example":
                 for key in self.transform_ranges:
-                    self.transform_parameters[key] = np.random.uniform(self.transform_ranges[key][0], self.transform_ranges[key][1], batch_size)
+                    self.transform_parameters[key] = list(np.random.uniform(self.transform_ranges[key][0], self.transform_ranges[key][1], batch_size))
                         
             elif self._mode == "per_batch":
                 for key in self.transform_ranges:
-                    self.transform_parameters[key] = np.random.uniform(self.transform_ranges[key][0], self.transform_ranges[key][1])          
+                    self.transform_parameters[key] = [np.random.uniform(self.transform_ranges[key][0], self.transform_ranges[key][1])] * batch_size
+            
                     
         # print(self.transform_parameters)

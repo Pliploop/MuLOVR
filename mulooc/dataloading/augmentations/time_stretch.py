@@ -76,7 +76,7 @@ class TimeStretchAudiomentation(BaseWaveformTransform):
             self.transform_parameters['stretch_rates'] = list(np.random.uniform(self._min_stretch_rate, self._max_stretch_rate, batch_size))
         
         elif self._mode == "per_batch":
-            self.transform_parameters['stretch_rates'] = [np.random.uniform(self._min_stretch_rate, self._max_stretch_rate)]
+            self.transform_parameters['stretch_rates'] = [np.random.uniform(self._min_stretch_rate, self._max_stretch_rate)] * batch_size
             
     def apply_transform(
         
@@ -135,4 +135,67 @@ class TimeStretchAudiomentation(BaseWaveformTransform):
             
         return new_audio
        
-       
+
+class DiscreteTimeStretchAudioMentation(TimeStretchAudiomentation):
+    def randomize_parameters(
+        self,
+        samples: Tensor = None,
+        sample_rate: Optional[int] = None,
+        targets: Optional[Tensor] = None,
+        target_rate: Optional[int] = None,
+    ):
+        batch_size, num_channels, num_samples = samples.shape
+
+        if self._mode == "per_example":
+            # discrete sampling
+            stretch_rates = np.arange(self._min_stretch_rate, self._max_stretch_rate + 0.1, 0.1)
+            self.transform_parameters['stretch_rates'] = list(np.random.choice(stretch_rates, batch_size))
+        
+        elif self._mode == "per_batch":
+            stretch_rates = np.arange(self._min_stretch_rate, self._max_stretch_rate + 0.1, 0.1)
+            self.transform_parameters['stretch_rates'] = [np.random.choice(stretch_rates)]
+            
+            
+            
+            
+class BetaTimeStretchAudiomentation(TimeStretchAudiomentation):
+    def randomize_parameters(
+        self,
+        samples: Tensor = None,
+        sample_rate: Optional[int] = None,
+        targets: Optional[Tensor] = None,
+        target_rate: Optional[int] = None,
+    ):
+        batch_size, num_channels, num_samples = samples.shape
+
+        if self._mode == "per_example":
+            # beta distribution sampling
+            stretch_rates = np.random.beta(0.5, 0.5, batch_size) * (self._max_stretch_rate - self._min_stretch_rate) + self._min_stretch_rate
+            self.transform_parameters['stretch_rates'] = list(stretch_rates)
+        
+        elif self._mode == "per_batch":
+            stretch_rate = np.random.beta(0.5, 0.5) * (self._max_stretch_rate - self._min_stretch_rate) + self._min_stretch_rate
+            self.transform_parameters['stretch_rates'] = [stretch_rate]
+            
+            
+class LogUniformTimeStretchAudiomentation(TimeStretchAudiomentation):
+    def randomize_parameters(
+        self,
+        samples: Tensor = None,
+        sample_rate: Optional[int] = None,
+        targets: Optional[Tensor] = None,
+        target_rate: Optional[int] = None,
+    ):
+        batch_size, num_channels, num_samples = samples.shape
+
+    #log uniform sampling
+    
+        if self._mode == "per_example":
+            stretch_rates = np.random.uniform(np.log(self._min_stretch_rate), np.log(self._max_stretch_rate), batch_size)
+            stretch_rates = np.exp(stretch_rates)
+            self.transform_parameters['stretch_rates'] = list(stretch_rates)
+            
+        elif self._mode == "per_batch":
+            stretch_rate = np.random.uniform(np.log(self._min_stretch_rate), np.log(self._max_stretch_rate))
+            stretch_rate = np.exp(stretch_rate)
+            self.transform_parameters['stretch_rates'] = [stretch_rate]
