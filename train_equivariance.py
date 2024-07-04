@@ -9,6 +9,7 @@ from pytorch_lightning.callbacks import ModelCheckpoint, EarlyStopping
 import yaml
 import os
 import torch
+from hashlib import sha256
 
 
 class LoggerSaveConfigCallback(SaveConfigCallback):
@@ -67,7 +68,8 @@ if __name__ == "__main__":
         ckpt_path = cli.config.ckpt_path
     else:
         logger = None
-        experiment_name = 'nowandb'
+        # random experiment name
+        experiment_name = 'nowandb' + sha256(str(cli.config).encode()).hexdigest()
 
     cli.trainer.logger = logger
 
@@ -103,5 +105,7 @@ if __name__ == "__main__":
         
     cli.trainer.test(model=cli.model, datamodule=cli.datamodule)
     parent_folder = os.path.dirname(best_val_callback.best_model_path)
+    for file in os.listdir(parent_folder):
+            os.remove(os.path.join(parent_folder, file))
     os.rmdir(parent_folder)
     

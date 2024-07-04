@@ -38,7 +38,8 @@ class AudioDataset(Dataset):
         tempo_stretching = False,
         return_tfm_parameters = False,
         return_clean_audio = False,
-        extract_features = False
+        extract_features = False,
+        mono = True,
     ):
         self.annotations = annotations
         self.target_len_s = target_len_s
@@ -59,6 +60,7 @@ class AudioDataset(Dataset):
         self.return_clean_audio = return_clean_audio
         self.extract_features = extract_features
         self.max_target_n_samples = max_target_n_samples
+        self.mono = mono
         
         self.strategy = {
             "same": strategy_probs[0],
@@ -97,7 +99,7 @@ class AudioDataset(Dataset):
             labels = torch.tensor(self.annotations.iloc[idx]["labels"]).float()
         try:
             if self.return_full:
-                audio = load_full_and_split(path, self.target_sr, self.target_n_samples)
+                audio = load_full_and_split(path, self.target_sr, self.target_n_samples, mono = self.mono)
                 audio = audio.mean(dim=1, keepdim=True)
                 if self.frontend and not self.extract_features:
                     audio = audio.unsqueeze(1)
@@ -107,7 +109,8 @@ class AudioDataset(Dataset):
                 strategy = torch.multinomial(self.strategy_values, 1).item()
                 strategy = list(self.strategy.keys())[strategy]
                 audio = self.strategy_funcs[strategy](path, self.target_n_samples, self.target_sr, self.n_augmentations)
-                audio = audio.mean(dim=1, keepdim=True)
+                if self.mono:
+                    audio = audio.mean(dim=1, keepdim=True)
         except Exception as e:
             print("Error loading file:", e)
             return self[idx + 1]
@@ -229,20 +232,28 @@ class PrecomputedDataset(Dataset):
         print(f'length of dataset: {len(self)}')
     
     def __len__(self):
-        return len(self.annotations['param'])
+        
+        dummy_key = list(self.annotations['param'].keys())[0]
+        len_ = len(self.annotations['param'][dummy_key])
+        
+        return len_
 
     def __getitem__(self, idx):
         
         # memmap open the file in read only mode
         transform_parameters = self.annotations['param']
         
+        
         clean_embeddings = self.clean_embeddings[idx,...]
         transformed_embeddings = self.transformed_embeddings[idx,...]
-        transform_parameters = transform_parameters[idx]
+        transform_parameters = {
+            k : torch.tensor(transform_parameters[k][idx]) for k in transform_parameters
+        }
         
         clean_embeddings = torch.tensor(clean_embeddings)
         transformed_embeddings = torch.tensor(transformed_embeddings)
-        transform_parameters = torch.tensor(transform_parameters, dtype=torch.float32)
+        # transform_parameters = torch.tensor(transform_parameters, dtype=torch.float32)
+        
         
         return {
             "clean_audio": clean_embeddings,

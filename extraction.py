@@ -47,8 +47,11 @@ def extract_representations(config):
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu') if config['device'] is None else torch.device(f'cuda:{config["device"]}' if config['device'].isdigit() else config['device'])
     print(f'Using device: {device}')
-
-    mulooc = MuLOOC(encoder=encoder_class(), head_dims=head_dims, feat_extract_head=feat_extract_head)
+    
+    if model_config.get('encoder_args') is not None:
+        mulooc = MuLOOC(encoder=encoder_class(**model_config['encoder_args']), **model_config)
+    else:
+        mulooc = MuLOOC(encoder=encoder_class(), **model_config)
     mulooc.to(device)
 
     if ckpt_path is not None:
@@ -87,7 +90,7 @@ def extract_representations(config):
 
     dm.set_test_batch_size(dm.train_dataloader().batch_size)
 
-    save_path = f'/import/research_c4dm/jpmg86/MuLOOC/experiments/embeddings/{config["name"]}'
+    save_path = f'/import/research_c4dm/jpmg86/MuLOOC/experiments/embeddings/{config["data"]["task"]}/{config["name"]}'
     splits = ['train', 'val', 'test']
     dataloaders = [dm.train_dataloader(), dm.val_dataloader(), dm.test_dataloader()]
     annotations = [dm.train_dataset.annotations, dm.val_dataset.annotations, dm.test_dataset.annotations]
@@ -149,8 +152,8 @@ def get_embeddings(dataloader, model, epoch = 1, device = 'cuda', data_config = 
         bsz, chunks, channels, _, _ = audio.shape
         
         
-        audio_embedding = model.extract_features(audio)['encoded'].cpu()
-        clean_audio_embedding = model.extract_features(clean_audio)['encoded'].cpu()
+        audio_embedding = model.extract_features(audio)['encoded'].detach().cpu()
+        clean_audio_embedding = model.extract_features(clean_audio)['encoded'].detach().cpu()
         
         # explode batch to list
         audio_embedding = [audio_embedding[i] for i in range(audio_embedding.shape[0])]
@@ -284,6 +287,7 @@ if __name__ == '__main__':
     parser.add_argument('--ckpt_path', type=str, help='Path to the checkpoint', default = None)
     parser.add_argument('--epoch', type=float, help='Fraction of the dataset to use', default = 1.0)
     parser.add_argument('--aug_mode', type=str, help='Augmentation mode', default = 'per_example')
+    parser.add_argument('--dataset', type=str, help='Name of the output', default = 'mtat_top50')
     
     args = parser.parse_args()
     
@@ -298,6 +302,12 @@ if __name__ == '__main__':
         config['model']['ckpt_path'] = args.ckpt_path
     config['epoch'] = args.epoch
     config['aug_mode'] = args.aug_mode
+    config['data']['task'] = args.dataset
+    
+    if args.dataset not in ['mtat_top50']:
+        config['data']['batch_size'] = 1
+    
+    print(config)
     
     extract_representations(config)
     

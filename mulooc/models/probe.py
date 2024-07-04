@@ -4,6 +4,9 @@ import torch
 from mulooc.models.utils.task_metrics import *
 from mulooc.models.encoders import *
 from mulooc.models.mulooc import MuLOOC
+import seaborn as sns
+import numpy as np
+import matplotlib.pyplot as plt
 
 
 class Probe(nn.Module):
@@ -95,7 +98,8 @@ class LightningProbe(Probe, pl.LightningModule):
         
         self.test_agg = {
             'logits': [],
-            'labels': []
+            'labels': [],
+            'activations': []
         }
         
         self.get_metrics = eval(f'{self.task}_metrics')
@@ -144,17 +148,62 @@ class LightningProbe(Probe, pl.LightningModule):
             logits = self.head(encoded[:,1:,:].mean(1).mean(0,keepdim = True))
         else:
             logits = self.head(encoded).mean(0,keepdim = True)
-        self.test_agg['logits'].append(logits)
-        self.test_agg['labels'].append(labels)
+            
+        #if linear probing, record the activations of each part of the embedding representation
+        if len(self.layer_dims) == 0:
+            # output activated logits * weight of classifier
+            if isinstance(self.loss_fn,nn.CrossEntropyLoss):
+                # softmax is applied to get the activated logits,
+                activated_logits = torch.softmax(logits, dim = -1)
+            elif isinstance(self.loss_fn,nn.BCEWithLogitsLoss):
+                activated_logits = torch.sigmoid(logits)
+            activations = torch.matmul(activated_logits, self.head[0].weight.T)
+            
+        
+        self.test_agg['logits'].append(logits.detach().cpu())
+        self.test_agg['labels'].append(labels.detach().cpu())
+        self.test_agg['activations'].append(activations.detach().cpu())
     
     def on_test_epoch_end(self):
         self.test_agg['logits'] = torch.cat(self.test_agg['logits'], dim=0)
         self.test_agg['labels'] = torch.cat(self.test_agg['labels'], dim=0)
+        self.test_agg['activations'] = torch.cat(self.test_agg['activations'], dim=0)
         
         metrics = self.get_metrics(self.test_agg['logits'], self.test_agg['labels'], self.num_classes)
         self.log_metrics(metrics, stage = 'test')
         
+        print(self.test_agg['activations'].shape)
+        
+
+        if len(self.layer_dims) == 0 and self.logger is not None:
+            
+
+            fig, ax = plt.subplots(1, 1, figsize=(12, 6))
+            ax.set_xlabel('Dimension')
+            ax.set_ylabel('Activation')
+            ax.set_title('Activations of Embedding Dimensions')
+
+            bins = 50
+
+            window = 50
+            stride = self.test_agg['activations'].shape[-1]//bins
+            dummy_activations_binned = torch.nn.functional.avg_pool1d(self.test_agg['activations'].unsqueeze(0), kernel_size=window, stride=stride).squeeze(0)
+
+            x = np.arange(dummy_activations_binned.shape[1]).repeat(dummy_activations_binned.shape[0])
+            y = dummy_activations_binned.T.numpy().flatten()
+
+            sns.barplot(x=x, y=y, ax=ax,errorbar=("pi", 50), capsize=.1,
+                err_kws={"color": "0", "linewidth": 2},
+                linewidth=1, edgecolor="0",facecolor='0.8')
+            
+            self.logger.log({"activations": fig})
+        
+        
+        
         print('Test metrics:', metrics)
+        
+        
+        
         
         #clear test aggregation
         self.test_agg = {

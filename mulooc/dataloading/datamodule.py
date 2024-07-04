@@ -19,17 +19,7 @@ class AudioDataModule(pl.LightningDataModule):
         target_sr=44100,
         target_n_samples=None,
         max_target_n_samples=None,
-        augmentations={
-            "base": {
-                "augs":
-                    {"gain":
-                        {"p": 0.9}},
-                "p": 0.75},
-            "var": {
-                "augs": {},
-                "p": 0.75
-            }
-        },
+        augmentations={},
         batch_size=32,
         num_workers=8,
         transform=False,
@@ -38,7 +28,8 @@ class AudioDataModule(pl.LightningDataModule):
         val_split=0.1,
         frontend=None,
         keep_anchor=False, # to keep the clean anchor in the batch
-        tempo_stretching=False # for tempo estimation tasks only
+        tempo_stretching=False, # for tempo estimation tasks only
+        mono = True
     ):
         super().__init__()
         self.task = task
@@ -68,6 +59,7 @@ class AudioDataModule(pl.LightningDataModule):
         self.var_augs = augmentations.get('var', {}).get('augs', [])
         self.var_p = augmentations.get('var', {}).get('p', 0)
         self.tempo_stretching = tempo_stretching
+        self.mono = mono
 
         defaults = {
             "gain": {"min_gain_in_db": -15.0, "max_gain_in_db": 5.0, "p": 0.5, "sample_rate": self.target_sr},
@@ -177,7 +169,8 @@ class AudioDataModule(pl.LightningDataModule):
                 strategy_probs=self.strategy_probs,
                 frontend=self.frontend,
                 keep_anchor=self.keep_anchor,
-                tempo_stretching=self.tempo_stretching
+                tempo_stretching=self.tempo_stretching,
+                mono = self.mono
             )
             self.val_dataset = AudioDataset(
                 annotations=self.val_annotations,
@@ -193,7 +186,8 @@ class AudioDataModule(pl.LightningDataModule):
                 strategy_probs=self.strategy_probs,
                 frontend=self.frontend,
                 keep_anchor=self.keep_anchor,
-                tempo_stretching=self.tempo_stretching
+                tempo_stretching=self.tempo_stretching,
+                mono = self.mono
             )
             if self.return_labels:
                 self.test_dataset = AudioDataset(
@@ -211,7 +205,8 @@ class AudioDataModule(pl.LightningDataModule):
                     strategy_probs=self.strategy_probs,
                     frontend=self.frontend,
                     keep_anchor=self.keep_anchor,
-                    tempo_stretching=self.tempo_stretching
+                    tempo_stretching=self.tempo_stretching,
+                    mono = self.mono
                 )
 
     def train_dataloader(self):
@@ -266,8 +261,9 @@ class PrecomputedDataModule(pl.LightningDataModule):
         self.test_data = self.data['test']
         
         self.task_to_target_param = {
-            'pitch' : ['PitchShiftAudiomentation', 'semitones'],
-            'tempo' : ['TimeStretchAudiomentation', 'stretch_rates'],
+            'pitch' : [['PitchShiftAudiomentation', 'semitones']],
+            'tempo' : [['TimeStretchAudiomentation', 'stretch_rates']],
+            'both' : [['PitchShiftAudiomentation', 'semitones'], ['TimeStretchAudiomentation', 'stretch_rates']],
         }
         
         
@@ -285,17 +281,42 @@ class PrecomputedDataModule(pl.LightningDataModule):
                 
         
         
-        self.target_param = self.task_to_target_param[self.task]
+        # self.target_param = self.task_to_target_param[self.task]
+        self.target_params = self.task_to_target_param[self.task]
         
-        self.train_data['target_param'] = self.train_data['transform_parameters'][self.target_param[0]][self.target_param[1]]
-        self.val_data['target_param'] = self.val_data['transform_parameters'][self.target_param[0]][self.target_param[1]]
-        self.test_data['target_param'] = self.test_data['transform_parameters'][self.target_param[0]][self.target_param[1]]
-        self.train_data['mean_target_param'] = self.train_data['mean_transform_parameters'][self.target_param[0]][self.target_param[1]]
-        self.val_data['mean_target_param'] = self.val_data['mean_transform_parameters'][self.target_param[0]][self.target_param[1]]
-        self.test_data['mean_target_param'] = self.test_data['mean_transform_parameters'][self.target_param[0]][self.target_param[1]]
+        # self.train_data['target_param'] = self.train_data['transform_parameters'][self.target_param[0]][self.target_param[1]]
+        # self.val_data['target_param'] = self.val_data['transform_parameters'][self.target_param[0]][self.target_param[1]]
+        # self.test_data['target_param'] = self.test_data['transform_parameters'][self.target_param[0]][self.target_param[1]]
+        # self.train_data['mean_target_param'] = self.train_data['mean_transform_parameters'][self.target_param[0]][self.target_param[1]]
+        # self.val_data['mean_target_param'] = self.val_data['mean_transform_parameters'][self.target_param[0]][self.target_param[1]]
+        # self.test_data['mean_target_param'] = self.test_data['mean_transform_parameters'][self.target_param[0]][self.target_param[1]]
         
-        print(self.train_data['target_param'])
-        print(self.train_data['mean_target_param'])
+        
+        print(self.target_params)
+        
+        self.train_data['target_param'] = {
+            param[1]: self.train_data['transform_parameters'][param[0]][param[1]] for param in self.target_params
+        }
+        self.val_data['target_param'] = {
+            param[1]: self.val_data['transform_parameters'][param[0]][param[1]] for param in self.target_params
+        }
+        
+        self.test_data['target_param'] = {
+            param[1]: self.test_data['transform_parameters'][param[0]][param[1]] for param in self.target_params
+        }
+        
+        self.train_data['mean_target_param'] = {
+            param[1]: self.train_data['mean_transform_parameters'][param[0]][param[1]] for param in self.target_params
+        }
+        
+        self.val_data['mean_target_param'] = {
+            param[1]: self.val_data['mean_transform_parameters'][param[0]][param[1]] for param in self.target_params
+        }
+        
+        self.test_data['mean_target_param'] = {
+            param[1]: self.test_data['mean_transform_parameters'][param[0]][param[1]] for param in self.target_params
+        }
+        
         
     def setup(self, stage=None):
         self.train_dataset = PrecomputedDataset(
