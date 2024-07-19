@@ -16,3 +16,4 @@ from .reverb import ReverbAudiomentation
 from .bitcrush import BitcrushAudiomentation
 from .background import AddBackgroundNoiseAudiomentation
 from .custom_pitch_shift import PitchShiftAudiomentation
+from .stereo import Pan, Width

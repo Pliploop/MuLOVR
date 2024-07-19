@@ -85,6 +85,8 @@ class AudioDataModule(pl.LightningDataModule):
             "reverse": {"p": 0.5, "sample_rate": self.target_sr},
             "bitcrush": {"p": 0.5, "sample_rate": self.target_sr, "bit_depth": 4},
             "mp3": {"p": 0.5, "sample_rate": self.target_sr, "vbr_quality": 9},
+            "pan": {"p": 0.5, "sample_rate": self.target_sr, "min_pan": -1, "max_pan": 1},
+            "width": {"p": 0.5, "sample_rate": self.target_sr, "min_width": 0, "max_width": 1},
             "background": {"p": 0.5, "sample_rate": self.target_sr, "min_snr_in_db": -3, "max_snr_in_db": 12, "background_paths": '/import/c4dm-datasets-ext/audioset-01/audioset/balanced_train_segments'}
         }
 
@@ -105,6 +107,8 @@ class AudioDataModule(pl.LightningDataModule):
             'log_uniform_timestretch': lambda kwargs: LogUniformTimeStretch(**kwargs),
             'reverb': lambda kwargs: ReverbAudiomentation(**kwargs),
             'distortion': lambda kwargs: DistortionAudiomentation(**kwargs),
+            'pan' : lambda kwargs: Pan(**kwargs),
+            'width' : lambda kwargs: Width(**kwargs),
             
         }
 
@@ -127,6 +131,11 @@ class AudioDataModule(pl.LightningDataModule):
             "base": self.base_aug_chain,
             "var": self.var_aug_chain,
         }
+        
+        print("Base augmentations:", self.base_augs)
+        print("Base p:", self.base_p)
+        print("Var augmentations:", self.var_augs)
+        print("Var p:", self.var_p)
 
         self.frontend = frontend
 

@@ -3,6 +3,7 @@ from torchmetrics.functional import auroc, average_precision, accuracy, recall, 
 from mir_eval.key import weighted_score
 from mir_eval import tempo
 import torch
+import numpy as np
 
 ## all metric functions return a dictionary with the metrics
 
@@ -37,6 +38,9 @@ def giantsteps_metrics(logits, labels, n_classes):
     
     idx2class = {0: 'Eb minor', 1: 'A major', 2: 'F minor', 3: 'D minor', 4: 'G minor', 5: 'C minor', 6: 'A minor', 7: 'B minor', 8: 'Db minor', 9: 'D major', 10: 'E minor', 11: 'Bb major', 12: 'Ab minor', 13: 'C major', 14: 'Db major', 15: 'Ab major', 16: 'E major', 17: 'G major', 18: 'B major', 19: 'Gb minor', 20: 'Gb major', 21: 'Bb minor', 22: 'F major', 23: 'Eb major'}
     
+    if isinstance(logits, np.ndarray):
+        logits = torch.tensor(logits)
+        labels = torch.tensor(labels)
     
     preds = torch.softmax(logits,dim = 1)
     preds = torch.argmax(preds,dim = 1)
@@ -130,6 +134,9 @@ def acmmirum_tempo_metrics(logits, labels,n_classes):
 
 def get_tempo_metrics(logits, ground_truth, tol = 0.04):
     
+    if isinstance(logits, np.ndarray):
+        logits = torch.tensor(logits)
+        ground_truth = torch.tensor(ground_truth)
     
     #all to cpu
     logits = logits.cpu()

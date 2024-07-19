@@ -7,10 +7,12 @@ import librosa
 import numpy as np
 import torch
 
+
+
     
        
        
-class StereoWidth(BaseWaveformTransform):
+class Width(BaseWaveformTransform):
     
     supported_modes = {"per_batch", "per_example", "per_channel"}
 
@@ -101,7 +103,7 @@ class StereoWidth(BaseWaveformTransform):
 
         if self._mode == "per_example":
             for i in range(batch_size):
-                samples[i, ...] = self.stretch(
+                samples[i, ...] = self.widen(
                     samples[i][None],
                     self.transform_parameters["widths"][i],
                     sample_rate,
@@ -109,7 +111,7 @@ class StereoWidth(BaseWaveformTransform):
 
 
         elif self._mode == "per_batch":
-            samples = self.stretch(
+            samples = self.widen(
                 samples, 
                 self.transform_parameters["widths"][0],
                 sample_rate
@@ -125,33 +127,27 @@ class StereoWidth(BaseWaveformTransform):
     def widen(self,samples: Tensor, width = 1, sr = 22050) -> Tensor:
         
        # time stretch the signal and truncate to the original length
-       
-#        M = (L+R)/sqrt(2);   // obtain mid-signal from left and right
-        # S = (L-R)/sqrt(2);   // obtain side-signal from left and right
-
-        # // amplify mid and side signal seperately:
-        # M *= 2*(1-width);
-        # S *= 2*width;
-
-        # L = (M+S)/sqrt(2);   // obtain left signal from mid and side
-        # R = (M-S)/sqrt(2);   // obtain right signal from mid and side
+        
+        print("widening")
+        
+        width = 2 * np.clip(width,0,1)
         
         L = samples[:,0,:]
         R = samples[:,1,:]
         
-        M = (L+R)/np.sqrt(2)
-        S = (L-R)/np.sqrt(2)
+        M = (L+R)/(2**0.5)
+        S = (L-R)/(2**0.5)
         
-        M *= 2*(1-width)
-        S *= 2*width
+        M *= (2-width)**0.5
+        S *= width**0.5
         
-        L = (M+S)/np.sqrt(2)
-        R = (M-S)/np.sqrt(2)
+        L = (M+S)/(2**0.5)
+        R = (M-S)/(2**0.5)
         
         return torch.stack([L,R],dim = 1)
         
 
-class StereoPan(BaseWaveformTransform):
+class Pan(BaseWaveformTransform):
     
     supported_modes = {"per_batch", "per_example", "per_channel"}
 
@@ -267,10 +263,12 @@ class StereoPan(BaseWaveformTransform):
         
         # pan stereo file to angle between 90 and -90 degrees
         
+        print("panning")
+        
         L = samples[:,0,:]
         R = samples[:,1,:]
         
-        angle = np.clip(angle,-1,1)
+        angle = np.clip(angle,-1,1) / 2 + 1/2
         
         L = L * np.cos(angle * np.pi/2)
         R = R * np.sin(angle * np.pi/2)
